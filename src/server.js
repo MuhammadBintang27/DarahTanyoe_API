@@ -7,6 +7,7 @@ import partnerRouter from './routes/partnerRouter.js';
 import bloodDonorRouter from './routes/bloodDonorRouter.js';
 import notificationRouter from './routes/notificationRouter.js';
 import institutionRouter from './routes/institutionRouter.js';
+import bloodStockRouter from './routes/bloodStockRouter.js';
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.use('/partners', partnerRouter);
 app.use('/donor', bloodDonorRouter);
 app.use('/notification', notificationRouter);
 app.use('/institutions', institutionRouter);
+app.use('/blood-stock', bloodStockRouter);
 
 app.get('/', (req, res) => {
   res.send('Welcome to the DarahTanyoe API');

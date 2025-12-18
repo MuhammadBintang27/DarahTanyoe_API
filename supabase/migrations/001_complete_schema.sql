@@ -78,6 +78,7 @@ DROP TABLE IF EXISTS blood_campaigns CASCADE;
 DROP TABLE IF EXISTS pickup_requests CASCADE;
 DROP TABLE IF EXISTS blood_requests CASCADE;
 DROP TABLE IF EXISTS stock_ledger CASCADE;
+DROP TABLE IF EXISTS blood_stock_history CASCADE;
 DROP TABLE IF EXISTS blood_stock CASCADE;
 DROP TABLE IF EXISTS donations CASCADE;
 DROP TABLE IF EXISTS otp_records CASCADE;
@@ -216,6 +217,20 @@ CREATE TABLE stock_ledger (
   related_request UUID,
   related_donation UUID REFERENCES donations(id),
   notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Blood Stock History Table (for tracking all stock changes)
+CREATE TABLE blood_stock_history (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  blood_type blood_type NOT NULL,
+  change_type VARCHAR(20) NOT NULL CHECK (change_type IN ('add', 'reduce', 'used', 'expired')),
+  quantity_change INTEGER NOT NULL CHECK (quantity_change > 0),
+  previous_quantity INTEGER NOT NULL DEFAULT 0,
+  new_quantity INTEGER NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_by UUID REFERENCES institutions(id),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -510,6 +525,12 @@ CREATE INDEX idx_blood_stock_blood_type ON blood_stock(blood_type);
 CREATE INDEX idx_blood_stock_status ON blood_stock(status);
 CREATE INDEX idx_blood_stock_expiry_date ON blood_stock(expiry_date);
 CREATE INDEX idx_blood_stock_batch_number ON blood_stock(batch_number);
+
+-- Blood stock history indexes
+CREATE INDEX idx_blood_stock_history_institution ON blood_stock_history(institution_id);
+CREATE INDEX idx_blood_stock_history_blood_type ON blood_stock_history(blood_type);
+CREATE INDEX idx_blood_stock_history_created_at ON blood_stock_history(created_at DESC);
+CREATE INDEX idx_blood_stock_history_change_type ON blood_stock_history(change_type);
 
 -- Blood requests indexes
 CREATE INDEX idx_blood_requests_requester_id ON blood_requests(requester_id);
