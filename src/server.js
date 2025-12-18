@@ -8,6 +8,8 @@ import bloodDonorRouter from './routes/bloodDonorRouter.js';
 import notificationRouter from './routes/notificationRouter.js';
 import institutionRouter from './routes/institutionRouter.js';
 import bloodStockRouter from './routes/bloodStockRouter.js';
+import pickupScheduleRouter from './routes/pickupScheduleRouter.js';
+import bloodStockHistoryRouter from './routes/bloodStockHistoryRouter.js';
 
 dotenv.config();
 
@@ -25,6 +27,8 @@ app.use('/donor', bloodDonorRouter);
 app.use('/notification', notificationRouter);
 app.use('/institutions', institutionRouter);
 app.use('/blood-stock', bloodStockRouter);
+app.use('/pickup-schedules', pickupScheduleRouter);
+app.use('/blood-stock-history', bloodStockHistoryRouter);
 
 app.get('/', (req, res) => {
   res.send('Welcome to the DarahTanyoe API');

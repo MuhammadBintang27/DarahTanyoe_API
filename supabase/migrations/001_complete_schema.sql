@@ -267,32 +267,20 @@ CREATE TABLE blood_requests (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Pickup Requests Table (for blood collection)
-CREATE TABLE pickup_requests (
+-- Pickup Schedules Table (for blood collection scheduling)
+CREATE TABLE pickup_schedules (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  request_id UUID REFERENCES blood_requests(id) ON DELETE CASCADE,
-  requester_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  blood_type blood_type NOT NULL,
-  quantity INTEGER NOT NULL CHECK (quantity > 0),
-  urgency_level priority_level DEFAULT 'medium',
-  pickup_date TIMESTAMPTZ NOT NULL,
-  pickup_address TEXT NOT NULL,
-  pickup_location GEOGRAPHY(POINT, 4326),
-  contact_person VARCHAR(100) NOT NULL,
-  contact_phone VARCHAR(20) NOT NULL,
-  status pickup_status DEFAULT 'pending',
-  driver_id UUID,
-  vehicle_info JSONB,
-  estimated_arrival TIMESTAMPTZ,
-  actual_pickup_time TIMESTAMPTZ,
-  completion_notes TEXT,
-  delivery_confirmation JSONB,
-  medical_emergency BOOLEAN DEFAULT false,
-  special_instructions TEXT,
-  cancellation_reason TEXT,
-  cancelled_by UUID REFERENCES institutions(id),
-  cancelled_at TIMESTAMPTZ,
+  request_id UUID NOT NULL REFERENCES blood_requests(id) ON DELETE CASCADE,
+  pmi_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  hospital_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  pickup_date DATE NOT NULL,
+  pickup_time TIME NOT NULL,
+  pickup_location TEXT NOT NULL,
+  unique_code VARCHAR(8) UNIQUE NOT NULL,
+  status pickup_status DEFAULT 'scheduled',
+  confirmed_at TIMESTAMPTZ,
+  confirmed_by UUID REFERENCES institutions(id),
+  notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -539,6 +527,14 @@ CREATE INDEX idx_blood_requests_blood_type ON blood_requests(blood_type);
 CREATE INDEX idx_blood_requests_status ON blood_requests(status);
 CREATE INDEX idx_blood_requests_urgency ON blood_requests(urgency_level);
 
+-- Pickup schedules indexes
+CREATE INDEX idx_pickup_schedules_request_id ON pickup_schedules(request_id);
+CREATE INDEX idx_pickup_schedules_pmi_id ON pickup_schedules(pmi_id);
+CREATE INDEX idx_pickup_schedules_hospital_id ON pickup_schedules(hospital_id);
+CREATE INDEX idx_pickup_schedules_status ON pickup_schedules(status);
+CREATE INDEX idx_pickup_schedules_unique_code ON pickup_schedules(unique_code);
+CREATE INDEX idx_pickup_schedules_pickup_date ON pickup_schedules(pickup_date);
+
 -- Campaign indexes
 CREATE INDEX idx_campaigns_organizer_id ON blood_campaigns(organizer_id);
 CREATE INDEX idx_campaigns_status ON blood_campaigns(status);
@@ -571,7 +567,7 @@ CREATE TRIGGER update_institutions_updated_at BEFORE UPDATE ON institutions FOR 
 CREATE TRIGGER update_donations_updated_at BEFORE UPDATE ON donations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_blood_stock_updated_at BEFORE UPDATE ON blood_stock FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_blood_requests_updated_at BEFORE UPDATE ON blood_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_pickup_requests_updated_at BEFORE UPDATE ON pickup_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_pickup_schedules_updated_at BEFORE UPDATE ON pickup_schedules FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_blood_campaigns_updated_at BEFORE UPDATE ON blood_campaigns FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Function to log stock mutations
