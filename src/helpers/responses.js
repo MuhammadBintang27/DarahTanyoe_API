@@ -29,7 +29,7 @@ const sendNotFound = (res, message) => {
     status: "ERROR",
     code: 404,
     message: message || "Resource not found.",
-  });unique_code
+  });
 };
 
 const sendConflict = (res, message) => {

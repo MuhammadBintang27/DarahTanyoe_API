@@ -171,27 +171,14 @@ const verifyUniqueCode = async (req, res) => {
 };
 
 const getDonationOffersByPartnerId = async (req, res) => {
-  const { userMitraId } = req.params;
+  const { institutionId } = req.params;
 
   try {
-    // Step 1: Ambil partnerId berdasarkan userMitraId
-    const { data: partnerData, error: partnerError } = await supabase
-      .from("partners")
-      .select("id")
-      .eq("userId", userMitraId)
-      .single();
-
-    if (partnerError || !partnerData) {
-      return response.sendNotFound(res, "Partner not found");
-    }
-
-    const partnerId = partnerData.id;
-
-    // Step 2: Ambil semua blood_requests dari partner tersebut
+    // Get all blood_requests for this institution (PMI)
     const { data: bloodRequests, error: bloodRequestsError } = await supabase
       .from("blood_requests")
       .select("id")
-      .eq("partner_id", partnerId);
+      .eq("partner_id", institutionId);
 
     if (bloodRequestsError) {
       return response.sendInternalError(res, bloodRequestsError.message);

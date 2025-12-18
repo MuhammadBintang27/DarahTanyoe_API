@@ -5,23 +5,25 @@ import { DateTime } from "luxon";
 
 const createBloodReq = async (req, res) => {
   const requestBody = req.body;
-  const date = requestBody.expiry_date;
-
-  const formattedDate = DateTime.fromFormat(date, "d-M-yyyy H:mm", {
-    zone: "utc",
-  }).toISO();
 
   try {
+    // Remove deprecated fields
+    const { expiry_date, needed_by, reason, ...cleanBody } = requestBody;
+    
+    const payload = {
+      ...cleanBody,
+      // Map reason to medical_condition if medical_condition not provided
+      medical_condition: cleanBody.medical_condition || reason,
+      // Set defaults
+      unit_type: cleanBody.unit_type || 'kantong',
+      urgency_level: cleanBody.urgency_level || 'medium',
+    };
+    
     const { data, error } = await supabase
       .from("blood_requests")
-      .insert([
-        {
-          ...requestBody,
-          expiry_date: formattedDate,
-        },
-      ])
-      .select("id") // ini untuk mengembalikan data hasil insert
-      .single(); // karena kita hanya insert 1 row
+      .insert([payload])
+      .select("id")
+      .single();
 
     if (error) {
       return response.sendBadRequest(res, error.message);
@@ -48,25 +50,23 @@ const getBloodReqByUserId = async (req, res) => {
   const { requesterId } = req.params;
 
   try {
-    // const now = DateTime.now().toUTC().toISO();
-    // const { data: cancelledRequests, error: cancelError } = await supabase
-    //   .from("blood_requests")
-    //   .update({ status: "cancelled" })
-    //   .lt("expiry_date", now)
-    //   .neq("status", "cancelled")
-    //   .select();
-
-    // if (cancelError) {
-    //   console.error("Error cancelling expired blood requests:", cancelError.message);
-    // } else if (cancelledRequests.length > 0) {
-    //   console.log("✅ Auto-cancelled requests:", cancelledRequests);
-    // } else {
-    //   console.log("ℹ️ No expired blood requests to cancel.");
-    // }
-
     const { data, error } = await supabase
       .from("blood_requests")
-      .select("*, partners(name)")
+      .select(`
+        *,
+        requester:institutions!blood_requests_requester_id_fkey(
+          id,
+          institution_name,
+          institution_type,
+          address,
+          phone_number
+        ),
+        partner:institutions!blood_requests_partner_id_fkey(
+          id,
+          institution_name,
+          institution_type
+        )
+      `)
       .eq("requester_id", requesterId)
       .order("created_at", { ascending: false });
 
@@ -85,43 +85,24 @@ const getBloodReqByUserId = async (req, res) => {
 };
 
 const getBloodReqByPartnerId = async (req, res) => {
-  const { userMitraId } = req.params;
+  const { institutionId } = req.params;
 
   try {
-    // const { data: cancelledRequests, error: cancelError } = await supabase
-    //   .from("blood_requests")
-    //   .update({ status: "cancelled" })
-    //   .lt("expiry_date", new Date().toISOString())
-    //   .neq("status", "cancelled")
-    //   .select(); // biar kita bisa tahu datanya apa aja
-
-    // if (cancelError) {
-    //   console.error(
-    //     "Error cancelling expired blood requests:",
-    //     cancelError.message
-    //   );
-    // } else if (cancelledRequests.length > 0) {
-    //   console.log("✅ Auto-cancelled requests:", cancelledRequests);
-    // } else {
-    //   console.log("ℹ️ No expired blood requests to cancel.");
-    // }
-
-    const { data: partnerData, error: partnerError } = await supabase
-      .from("partners")
-      .select("id")
-      .eq("userId", userMitraId)
-      .single();
-
-    if (partnerError || !partnerData) {
-      return response.sendNotFound(res, "Partner not found");
-    }
-
-    const partnerId = partnerData.id;
-
+    // Get blood requests where this institution is the partner (PMI receiving requests from hospitals)
     const { data: bloodRequests, error: bloodRequestsError } = await supabase
       .from("blood_requests")
-      .select("*, partners(name, latitude, longitude)")
-      .eq("partner_id", partnerId);
+      .select(`
+        *,
+        requester:institutions!blood_requests_requester_id_fkey(
+          id,
+          institution_name,
+          institution_type,
+          address,
+          phone_number
+        )
+      `)
+      .eq("partner_id", institutionId)
+      .order("created_at", { ascending: false });
 
     if (bloodRequestsError) {
       return response.sendInternalError(res, bloodRequestsError.message);

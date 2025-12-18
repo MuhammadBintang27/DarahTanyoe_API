@@ -257,7 +257,6 @@ const completeUserProfile = async (req, res) => {
       blood_type,
       last_donation_date,
       health_notes,
-      user_type,
       profile_picture,
     } = req.body;
 
@@ -268,8 +267,7 @@ const completeUserProfile = async (req, res) => {
       latitude === undefined ||
       longitude === undefined ||
       !age ||
-      !blood_type ||
-      !user_type
+      !blood_type
     ) {
       return response.sendBadRequest(res, "Missing required fields");
     }
@@ -289,7 +287,6 @@ const completeUserProfile = async (req, res) => {
           last_donation_date,
           health_notes,
           total_points: 0,
-          user_type,
           profile_picture,
           updated_at: new Date(),
         },

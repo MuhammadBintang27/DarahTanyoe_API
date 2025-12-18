@@ -11,45 +11,305 @@ const createPartner = async (req, res) => {
 
 const getPatnerWithBloodStock = async (req, res) => {
   try {
-    const { data: dataPartners, error } = await supabase
-      .from("partners")
-      .select("*");
+    // Get all institutions (both hospital and PMI)
+    const { data: dataInstitutions, error } = await supabase
+      .from("institutions")
+      .select("*")
+      .eq("active", true);
 
     if (error) {
       return response.sendInternalError(res, error.message);
     }
 
+    // Get all blood stock
     const { data: dataBloodStock, error: errorBloodStock } = await supabase
-      .from("blood_stocks")
-      .select("*");
+      .from("blood_stock")
+      .select("*")
+      .eq("status", "available");
 
     if (errorBloodStock) {
       return response.sendInternalError(res, errorBloodStock.message);
     }
 
-    const partners = dataPartners.map((partner) => {
+    // Map institutions with their blood stock
+    const institutions = dataInstitutions.map((institution) => {
       const bloodStock = dataBloodStock.filter(
-        (stock) => stock.partner_id === partner.id
+        (stock) => stock.institution_id === institution.id
       );
 
       return {
-        ...partner,
+        ...institution,
         blood_stock:
           bloodStock.length > 0
             ? bloodStock.map((stock) => ({
                 blood_type: stock.blood_type,
                 quantity: stock.quantity,
+                expiry_date: stock.expiry_date,
               }))
             : [],
       };
     });
 
     return response.sendSuccess(res, {
-      data: partners,
-      message: "Successfully get partners with blood stock",
+      data: institutions,
+      message: "Successfully get institutions with blood stock",
     });
   } catch (error) {
-    console.error("Get partners error:", error);
+    console.error("Get institutions error:", error);
+    return response.sendInternalError(res, "An unexpected error occurred");
+  }
+};
+
+// Approve blood request by PMI
+const approveBloodRequest = async (req, res) => {
+  const { requestId } = req.params;
+
+  try {
+    // Get request data with institution details
+    const { data: requestData, error: requestError } = await supabase
+      .from("blood_requests")
+      .select(`
+        *,
+        requester:institutions!blood_requests_requester_id_fkey(
+          id,
+          institution_name,
+          phone_number
+        ),
+        partner:institutions!blood_requests_partner_id_fkey(
+          id,
+          institution_name
+        )
+      `)
+      .eq("id", requestId)
+      .single();
+
+    if (requestError || !requestData) {
+      return response.sendNotFound(res, "Blood request not found");
+    }
+
+    if (requestData.status !== "pending") {
+      return response.sendBadRequest(
+        res,
+        "Only pending requests can be approved"
+      );
+    }
+
+    // Check blood stock availability
+    const { data: stockData, error: stockError } = await supabase
+      .from("blood_stock")
+      .select("quantity")
+      .eq("institution_id", requestData.partner_id)
+      .eq("blood_type", requestData.blood_type)
+      .eq("status", "available")
+      .single();
+
+    if (stockError || !stockData) {
+      // Stok tidak ditemukan, update status ke "in_fulfillment"
+      const { error: updateError } = await supabase
+        .from("blood_requests")
+        .update({ 
+          status: "in_fulfillment",
+          updated_at: new Date() 
+        })
+        .eq("id", requestId);
+
+      if (updateError) {
+        return response.sendInternalError(res, "Failed to update request status");
+      }
+
+      // Send notification to hospital - stock in fulfillment
+      const { error: notifError } = await supabase
+        .from("notifications")
+        .insert([{
+          institution_id: requestData.requester_id,
+          title: "Permintaan Darah Sedang Dipenuhi",
+          message: `Permintaan darah ${requestData.blood_type} untuk pasien ${requestData.patient_name} sedang dalam proses pemenuhan stok oleh ${requestData.partner?.institution_name}.`,
+          type: "request",
+          related_id: requestId,
+          related_type: "blood_request",
+          created_at: new Date()
+        }]);
+
+      if (notifError) {
+        console.error("Error sending notification:", notifError);
+      }
+
+      return response.sendSuccess(res, {
+        message: "Request approved but stock is in fulfillment process",
+        status: "in_fulfillment"
+      });
+    }
+
+    // Check if stock is sufficient
+    if (stockData.quantity < requestData.quantity) {
+      // Stok tidak cukup, update status ke "in_fulfillment"
+      const { error: updateError } = await supabase
+        .from("blood_requests")
+        .update({ 
+          status: "in_fulfillment",
+          updated_at: new Date() 
+        })
+        .eq("id", requestId);
+
+      if (updateError) {
+        return response.sendInternalError(res, "Failed to update request status");
+      }
+
+      // Send notification to hospital - insufficient stock
+      const { error: notifError } = await supabase
+        .from("notifications")
+        .insert([{
+          institution_id: requestData.requester_id,
+          title: "Stok Darah Sedang Dipenuhi",
+          message: `Stok darah ${requestData.blood_type} saat ini tidak mencukupi (tersedia: ${stockData.quantity} kantong, diminta: ${requestData.quantity} kantong). PMI ${requestData.partner?.institution_name} sedang memproses pemenuhan stok.`,
+          type: "request",
+          related_id: requestId,
+          related_type: "blood_request",
+          created_at: new Date()
+        }]);
+
+      if (notifError) {
+        console.error("Error sending notification:", notifError);
+      }
+
+      return response.sendSuccess(res, {
+        message: "Request approved but stock is insufficient - in fulfillment process",
+        status: "in_fulfillment",
+        available_stock: stockData.quantity,
+        requested_quantity: requestData.quantity
+      });
+    }
+
+    // Stock is sufficient - update status to "approved" and prepare blood package
+    const { error: updateError } = await supabase
+      .from("blood_requests")
+      .update({ 
+        status: "approved",
+        updated_at: new Date() 
+      })
+      .eq("id", requestId);
+
+    if (updateError) {
+      return response.sendInternalError(res, "Failed to approve request");
+    }
+
+    // Generate unique pickup code
+    const uniqueCode = `BR${Date.now().toString().slice(-8)}`;
+    const { error: codeError } = await supabase
+      .from("blood_requests")
+      .update({ pickup_code: uniqueCode })
+      .eq("id", requestId);
+
+    if (codeError) {
+      console.error("Error generating unique code:", codeError);
+    }
+
+    // Send notification to hospital - approved and ready for pickup
+    const { error: notifError } = await supabase
+      .from("notifications")
+      .insert([{
+        institution_id: requestData.requester_id,
+        title: "Permintaan Darah Disetujui",
+        message: `Permintaan darah ${requestData.blood_type} untuk pasien ${requestData.patient_name} telah disetujui oleh ${requestData.partner?.institution_name}. Paket darah sudah disiapkan dan siap diambil. Kode pickup: ${uniqueCode}`,
+        type: "request",
+        related_id: requestId,
+        related_type: "blood_request",
+        created_at: new Date()
+      }]);
+
+    if (notifError) {
+      console.error("Error sending notification:", notifError);
+    }
+
+    // Reduce blood stock
+    const { error: stockUpdateError } = await supabase
+      .from("blood_stock")
+      .update({ 
+        quantity: stockData.quantity - requestData.quantity,
+        updated_at: new Date()
+      })
+      .eq("institution_id", requestData.partner_id)
+      .eq("blood_type", requestData.blood_type)
+      .eq("status", "available");
+
+    if (stockUpdateError) {
+      console.error("Error updating stock:", stockUpdateError);
+    }
+
+    return response.sendSuccess(res, {
+      message: "Blood request approved and blood package prepared successfully",
+      status: "approved",
+      unique_code: uniqueCode
+    });
+  } catch (error) {
+    console.error("Approve request error:", error);
+    return response.sendInternalError(res, "An unexpected error occurred");
+  }
+};
+
+// Reject blood request by PMI
+const rejectBloodRequest = async (req, res) => {
+  const { requestId } = req.params;
+  const { rejection_reason } = req.body;
+
+  try {
+    // Get request data
+    const { data: requestData, error: requestError } = await supabase
+      .from("blood_requests")
+      .select(
+        "id, patient_name, blood_type, status, requester_id, partners(name)"
+      )
+      .eq("id", requestId)
+      .single();
+
+    if (requestError || !requestData) {
+      return response.sendNotFound(res, "Blood request not found");
+    }
+
+    if (requestData.status !== "pending") {
+      return response.sendBadRequest(
+        res,
+        "Only pending requests can be rejected"
+      );
+    }
+
+    // Update status to rejected
+    const { error: updateError } = await supabase
+      .from("blood_requests")
+      .update({ 
+        status: "rejected",
+        rejection_reason: rejection_reason || "No reason provided",
+        updated_at: new Date() 
+      })
+      .eq("id", requestId);
+
+    if (updateError) {
+      return response.sendInternalError(res, "Failed to reject request");
+    }
+
+    // Send notification to hospital
+    const { error: notifError } = await supabase
+      .from("notifications")
+      .insert([{
+        user_id: requestData.requester_id,
+        title: "Permintaan Darah Ditolak",
+        message: `Permintaan darah ${requestData.blood_type} untuk pasien ${requestData.patient_name} ditolak oleh ${requestData.partners.name}. Alasan: ${rejection_reason || "Tidak ada alasan"}`,
+        type: "app",
+        related_to: "request",
+        is_read: false,
+        created_at: new Date()
+      }]);
+
+    if (notifError) {
+      console.error("Error sending notification:", notifError);
+    }
+
+    return response.sendSuccess(res, {
+      message: "Blood request rejected successfully",
+      status: "rejected"
+    });
+  } catch (error) {
+    console.error("Reject request error:", error);
     return response.sendInternalError(res, "An unexpected error occurred");
   }
 };
@@ -73,11 +333,11 @@ const confirmRequest = async (req, res) => {
       return response.sendNotFound(res, "Blood request not found");
     }
 
-    // Check if the request is in pending status before confirming
-    if (requestData.status !== "pending") {
+    // Check if the request is in approved status before sending to donors
+    if (requestData.status !== "approved") {
       return response.sendBadRequest(
         res,
-        "Only pending requests can be confirmed"
+        "Only approved requests can be sent to nearby donors"
       );
     }
 
@@ -224,4 +484,6 @@ export default {
   createPartner,
   getPatnerWithBloodStock,
   confirmRequest,
+  approveBloodRequest,
+  rejectBloodRequest,
 };
