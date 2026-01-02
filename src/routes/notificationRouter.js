@@ -3,6 +3,20 @@ import notificationController from "../controllers/notificationController.js";
 
 const notificationRouter = express.Router();
 
-notificationRouter.get("/:userId", notificationController.getNotificationByUserId);
+// Donor notifications
+notificationRouter.get("/user/:userId", notificationController.getNotificationByUserId);
+
+// Institution notifications
+notificationRouter.get("/institution/:institutionId", notificationController.getNotificationByInstitutionId);
+notificationRouter.get("/institution/:institutionId/unread-count", notificationController.getUnreadCount);
+notificationRouter.patch("/:notificationId/read", notificationController.markAsRead);
+notificationRouter.patch("/institution/:institutionId/mark-all-read", notificationController.markAllAsRead);
+
+// Push token management
+notificationRouter.post("/push-token/register", notificationController.registerPushToken);
+notificationRouter.post("/push-token/unregister", notificationController.unregisterPushToken);
+
+// Test endpoint (for development)
+notificationRouter.post("/test", notificationController.sendTestNotification);
 
 export default notificationRouter;

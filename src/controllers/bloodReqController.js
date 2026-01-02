@@ -2,6 +2,7 @@ import axios from "axios";
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import { DateTime } from "luxon";
+import notificationService from "../services/notificationService.js";
 
 const createBloodReq = async (req, res) => {
   const requestBody = req.body;
@@ -19,26 +20,52 @@ const createBloodReq = async (req, res) => {
       urgency_level: cleanBody.urgency_level || 'medium',
     };
     
-    const { data, error } = await supabase
+    const { data: newRequest, error } = await supabase
       .from("blood_requests")
       .insert([payload])
-      .select("id")
+      .select(`
+        *,
+        requester:institutions!blood_requests_requester_id_fkey(
+          id,
+          institution_name,
+          institution_type
+        )
+      `)
       .single();
 
     if (error) {
       return response.sendBadRequest(res, error.message);
     }
 
-    // ======== bakal dihapus =========
-    // const responseConfirm = await axios.patch('https://gtf-api.vercel.app/partners/confirm/' + data.id)
-
-    // if (responseConfirm.status !== 200) {
-    //   return response.sendInternalError(res, "Failed to confirm request");
-    // }
-    // ======== bakal dihapus =========
+    // 🔔 Send notification to PMI (partner)
+    if (newRequest.partner_id) {
+      try {
+        await notificationService.notify({
+          institutionId: newRequest.partner_id,
+          type: 'request',
+          title: 'Permintaan Darah Baru',
+          message: `${newRequest.requester.institution_name} membutuhkan ${newRequest.quantity} kantong darah ${newRequest.blood_type}`,
+          priority: newRequest.urgency_level === 'critical' || newRequest.urgency_level === 'high' ? 'high' : 'medium',
+          relatedId: newRequest.id,
+          relatedType: 'blood_request',
+          metadata: {
+            blood_type: newRequest.blood_type,
+            quantity: newRequest.quantity,
+            patient_name: newRequest.patient_name,
+          },
+          actionUrl: `/blood-requests/${newRequest.id}`,
+          actionLabel: 'Lihat Detail',
+          sendEmail: newRequest.urgency_level === 'critical',
+        });
+      } catch (notifError) {
+        console.error('❌ Failed to send notification:', notifError);
+        // Don't fail the request creation if notification fails
+      }
+    }
 
     return response.sendCreated(res, {
       message: "Blood request created successfully",
+      data: { id: newRequest.id },
     });
   } catch (error) {
     console.error("Create blood request error:", error);

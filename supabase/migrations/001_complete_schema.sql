@@ -134,6 +134,9 @@ CREATE TABLE institutions (
   accreditation JSONB,
   active BOOLEAN DEFAULT true,
   last_login TIMESTAMPTZ,
+  notification_email VARCHAR(255),
+  email_notifications BOOLEAN DEFAULT true,
+  push_notifications BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -355,6 +358,7 @@ CREATE TABLE notifications (
   priority priority_level DEFAULT 'medium',
   related_id UUID,
   related_type VARCHAR(50),
+  is_read BOOLEAN DEFAULT false,
   read_at TIMESTAMPTZ,
   action_url TEXT,
   action_label VARCHAR(100),
@@ -544,8 +548,10 @@ CREATE INDEX idx_campaigns_end_date ON blood_campaigns(end_date);
 -- Notification indexes
 CREATE INDEX idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX idx_notifications_institution_id ON notifications(institution_id);
+CREATE INDEX idx_notifications_is_read ON notifications(is_read);
 CREATE INDEX idx_notifications_read_at ON notifications(read_at);
 CREATE INDEX idx_notifications_type ON notifications(type);
+CREATE INDEX idx_notifications_priority ON notifications(priority);
 CREATE INDEX idx_notifications_created_at ON notifications(created_at);
 
 -- ========================================

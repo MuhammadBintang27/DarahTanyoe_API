@@ -1,6 +1,7 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import axios from "axios";
+import notificationService from "../services/notificationService.js";
 
 const createPartner = async (req, res) => {
   const fb_ver = process.env.FACEBOOK_MESSAGE_VERSION;
@@ -187,24 +188,33 @@ const approveBloodRequest = async (req, res) => {
       console.error("Error generating unique code:", codeError);
     }
 
-    // Send notification to hospital - request approved
+    // 🔔 Send notification to hospital using notificationService
     const stockAvailable = stockData?.quantity || 0;
     const isStockSufficient = stockAvailable >= requestData.quantity;
     
-    const { error: notifError } = await supabase
-      .from("notifications")
-      .insert([{
-        institution_id: requestData.requester_id,
-        title: "Permintaan Darah Disetujui",
-        message: `Permintaan darah ${requestData.blood_type} untuk pasien ${requestData.patient_name} telah disetujui oleh ${requestData.partner?.institution_name}. ${isStockSufficient ? 'Stok tersedia dan siap diproses.' : 'PMI sedang memproses pemenuhan stok.'} Kode: ${uniqueCode}`,
-        type: "request",
-        related_id: requestId,
-        related_type: "blood_request",
-        created_at: new Date()
-      }]);
-
-    if (notifError) {
-      console.error("Error sending notification:", notifError);
+    try {
+      await notificationService.notify({
+        institutionId: requestData.requester_id,
+        type: 'request',
+        title: 'Permintaan Darah Disetujui',
+        message: `Permintaan darah ${requestData.blood_type} untuk pasien ${requestData.patient_name} telah disetujui oleh ${requestData.partner?.institution_name}. ${isStockSufficient ? `Darah siap diambil dengan kode: ${uniqueCode}` : 'PMI sedang memproses pemenuhan stok.'}`,
+        priority: 'high',
+        relatedId: requestId,
+        relatedType: 'blood_request',
+        metadata: {
+          unique_code: uniqueCode,
+          blood_type: requestData.blood_type,
+          quantity: requestData.quantity,
+          stock_available: stockAvailable,
+          is_sufficient: isStockSufficient,
+        },
+        actionUrl: `/blood-requests/${requestId}`,
+        actionLabel: 'Lihat Detail',
+        sendEmail: true,
+      });
+    } catch (notifError) {
+      console.error('❌ Failed to send notification:', notifError);
+      // Don't fail the approval if notification fails
     }
 
     return response.sendSuccess(res, {
@@ -229,12 +239,20 @@ const rejectBloodRequest = async (req, res) => {
   const { rejection_reason } = req.body;
 
   try {
-    // Get request data
+    // Get request data with institution details
     const { data: requestData, error: requestError } = await supabase
       .from("blood_requests")
-      .select(
-        "id, patient_name, blood_type, status, requester_id, partners(name)"
-      )
+      .select(`
+        *,
+        requester:institutions!blood_requests_requester_id_fkey(
+          id,
+          institution_name
+        ),
+        partner:institutions!blood_requests_partner_id_fkey(
+          id,
+          institution_name
+        )
+      `)
       .eq("id", requestId)
       .single();
 
@@ -263,21 +281,28 @@ const rejectBloodRequest = async (req, res) => {
       return response.sendInternalError(res, "Failed to reject request");
     }
 
-    // Send notification to hospital
-    const { error: notifError } = await supabase
-      .from("notifications")
-      .insert([{
-        user_id: requestData.requester_id,
-        title: "Permintaan Darah Ditolak",
-        message: `Permintaan darah ${requestData.blood_type} untuk pasien ${requestData.patient_name} ditolak oleh ${requestData.partners.name}. Alasan: ${rejection_reason || "Tidak ada alasan"}`,
-        type: "app",
-        related_to: "request",
-        is_read: false,
-        created_at: new Date()
-      }]);
-
-    if (notifError) {
-      console.error("Error sending notification:", notifError);
+    // 🔔 Send notification to hospital using notificationService
+    try {
+      await notificationService.notify({
+        institutionId: requestData.requester_id,
+        type: 'request',
+        title: 'Permintaan Darah Ditolak',
+        message: `Permintaan darah ${requestData.blood_type} untuk pasien ${requestData.patient_name} ditolak oleh ${requestData.partner?.institution_name}. Alasan: ${rejection_reason || 'Tidak ada alasan'}`,
+        priority: 'high',
+        relatedId: requestId,
+        relatedType: 'blood_request',
+        metadata: {
+          blood_type: requestData.blood_type,
+          quantity: requestData.quantity,
+          rejection_reason: rejection_reason || 'Tidak ada alasan',
+        },
+        actionUrl: `/blood-requests/${requestId}`,
+        actionLabel: 'Lihat Detail',
+        sendEmail: true,
+      });
+    } catch (notifError) {
+      console.error('❌ Failed to send notification:', notifError);
+      // Don't fail the rejection if notification fails
     }
 
     return response.sendSuccess(res, {
