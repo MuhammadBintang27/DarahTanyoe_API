@@ -82,6 +82,14 @@ const sendError = (res, code, payload) => {
   });
 };
 
+const sendServerError = (res, message) => {
+  res.status(500).send({
+    status: "ERROR",
+    code: 500,
+    message: message || "Internal server error.",
+  });
+};
+
 export default {
   sendSuccess,
   sendCreated,
@@ -93,4 +101,5 @@ export default {
   sendForbidden,
   sendInternalError,
   sendError,
+  sendServerError,
 };

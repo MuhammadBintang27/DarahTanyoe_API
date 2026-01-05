@@ -46,9 +46,9 @@ export const createPickupSchedule = async (req, res) => {
       return errorResponse(res, 'Request not found', 404);
     }
 
-    // Validate request is approved and PMI is the partner
-    if (request.status !== 'approved') {
-      return errorResponse(res, 'Request must be approved before creating pickup schedule', 400);
+    // Validate request is approved/ready and PMI is the partner
+    if (!['approved', 'ready'].includes(request.status)) {
+      return errorResponse(res, 'Request must be approved or ready before creating pickup schedule', 400);
     }
 
     if (request.partner_id !== pmiId) {
@@ -198,23 +198,33 @@ export const createPickupSchedule = async (req, res) => {
       return errorResponse(res, 'Error creating pickup schedule', 500);
     }
 
-    // Update request status to 'ready'
-    const { error: requestUpdateError } = await supabase
+    // Update request status to 'pickup_scheduled'
+    const { data: updatedRequest, error: requestUpdateError } = await supabase
       .from('blood_requests')
       .update({ 
-        status: 'ready',
+        status: 'pickup_scheduled',
         updated_at: new Date().toISOString()
       })
-      .eq('id', requestId);
+      .eq('id', requestId)
+      .select()
+      .single();
 
     if (requestUpdateError) {
       console.error('Error updating request status:', requestUpdateError);
       return errorResponse(res, 'Error updating request status', 500);
     }
 
+    console.log(`✅ Pickup schedule created and request updated to 'pickup_scheduled'`);
+    console.log(`   - Schedule ID: ${schedule.id}`);
+    console.log(`   - Request ID: ${requestId}`);
+    console.log(`   - Pickup Date: ${pickupDate} at ${pickupTime}`);
+
     return successResponse(
       res, 
-      schedule, 
+      {
+        schedule,
+        updatedRequest
+      }, 
       'Pickup schedule created successfully. Blood stock has been reserved.', 
       201
     );

@@ -10,13 +10,22 @@ import institutionRouter from './routes/institutionRouter.js';
 import bloodStockRouter from './routes/bloodStockRouter.js';
 import pickupScheduleRouter from './routes/pickupScheduleRouter.js';
 import bloodStockHistoryRouter from './routes/bloodStockHistoryRouter.js';
+import fulfillmentRouter from './routes/fulfillmentRouter.js';
+import campaignRouter from './routes/campaignRouter.js';
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 4000;
 
-app.use(cors());
+// CORS configuration with credentials support
+const corsOptions = {
+  origin: 'http://localhost:3000', // Frontend URL
+  credentials: true, // Allow credentials (cookies, authorization headers)
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -29,6 +38,8 @@ app.use('/institutions', institutionRouter);
 app.use('/blood-stock', bloodStockRouter);
 app.use('/pickup-schedules', pickupScheduleRouter);
 app.use('/blood-stock-history', bloodStockHistoryRouter);
+app.use('/fulfillment', fulfillmentRouter);
+app.use('/campaigns', campaignRouter);
 
 app.get('/', (req, res) => {
   res.send('Welcome to the DarahTanyoe API');
