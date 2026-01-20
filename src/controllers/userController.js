@@ -3,6 +3,7 @@ import response from "../helpers/responses.js";
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+import { sendWhatsAppOTP, sendWhatsAppNotification } from "../services/whatsappService.js";
 // import dotenv from "dotenv";
 
 // dotenv.config();
@@ -16,37 +17,6 @@ const supa = createClient(
 // Function to generate OTP (unchanged)
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// Fungsi untuk mengirim OTP melalui WhatsApp menggunakan WAnotifier
-const sendWhatsAppOTP = async (phone, otp) => {
-  try {
-    const message = `Kode OTP Anda adalah: ${otp}. Kode ini berlaku selama 5 menit.`;
-    const urlAPI =
-      "https://app.wanotifier.com/api/v1/notifications/9EbMPvrONH?key=NDF9Dct0JIjVnOxT7QyRhRBATObe5y";
-
-    const payload = {
-      data: {
-        body_variables: [otp],
-      },
-      recipients: [
-        {
-          whatsapp_number: phone,
-          first_name: "User",
-          replace: false,
-        },
-      ],
-    };
-
-    const response = await axios.post(urlAPI, payload);
-
-    console.log("WhatsApp message sent:", response.data.message);
-
-    return { success: true, data: response.data, message: message };
-  } catch (error) {
-    console.error("Error sending WhatsApp OTP:", error);
-    throw new Error("Failed to send OTP via WhatsApp");
-  }
 };
 
 const signInWithPhone = async (req, res) => {
@@ -63,7 +33,14 @@ const signInWithPhone = async (req, res) => {
     // Set expiry time (5 minutes)
     const expiryTime = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Store OTP in Supabase using supa client
+    // Delete any existing OTP records for this phone number first
+    console.log("🔍 DEBUG signInWithPhone - Deleting existing OTP records for phone:", phone);
+    await supa
+      .from("otp_records")
+      .delete()
+      .eq("phone", phone);
+
+    // Store OTP in Supabase using supa client (insert new record)
     const { data, error } = await supa
       .from("otp_records")
       .insert([
@@ -83,7 +60,7 @@ const signInWithPhone = async (req, res) => {
     }
 
     // Send OTP via WhatsApp (uncomment when ready)
-    await sendWhatsAppOTP(phone, otp);
+    // await sendWhatsAppOTP(phone, otp);
 
     console.log("OTP sent to phone:", otp);
 
@@ -104,6 +81,9 @@ const signInWithPhone = async (req, res) => {
 const verifyOTP = async (req, res) => {
   let { phone, token } = req.body;
 
+  console.log("🔍 DEBUG verifyOTP - Received body:", req.body);
+  console.log("🔍 DEBUG verifyOTP - Phone:", phone, "Token:", token);
+
   if (!phone || !token) {
     return response.sendBadRequest(
       res,
@@ -113,20 +93,26 @@ const verifyOTP = async (req, res) => {
 
   try {
     // Fetch OTP record from Supabase using supa client
+    console.log("🔍 DEBUG verifyOTP - Querying otp_records for phone:", phone);
     const { data: otpRecord, error: fetchError } = await supa
       .from("otp_records")
       .select("*")
       .eq("phone", phone)
       .maybeSingle();
       
+    console.log("🔍 DEBUG verifyOTP - Query result:", { otpRecord, fetchError });
+    
     if (fetchError || !otpRecord) {
+      console.log("🔍 DEBUG verifyOTP - OTP record not found or error:", fetchError);
       return response.sendBadRequest(res, `OTP not requested or expired`);
     }
 
     const { otp, expiry, attempts, id } = otpRecord;
+    console.log("🔍 DEBUG verifyOTP - OTP record details:", { otp, expiry, attempts, id });
 
     // Check number of attempts
     if (attempts >= 3) {
+      console.log("🔍 DEBUG verifyOTP - Too many attempts:", attempts);
       await supa.from("otp_records").delete().eq("id", id);
       return response.sendBadRequest(
         res,
@@ -146,7 +132,12 @@ const verifyOTP = async (req, res) => {
     }
 
     // Check expiry
-    if (new Date() > new Date(expiry)) {
+    const now = new Date();
+    const expiryDate = new Date(expiry);
+    console.log("🔍 DEBUG verifyOTP - Checking expiry:", { now: now.toISOString(), expiry: expiryDate.toISOString(), isExpired: now > expiryDate });
+    
+    if (now > expiryDate) {
+      console.log("🔍 DEBUG verifyOTP - OTP expired");
       await supa.from("otp_records").delete().eq("id", id);
       return response.sendBadRequest(
         res,
@@ -155,7 +146,15 @@ const verifyOTP = async (req, res) => {
     }
 
     // Verify OTP
+    console.log("🔍 DEBUG verifyOTP - Comparing tokens:", { 
+      received: token, 
+      receivedType: typeof token,
+      stored: otp, 
+      storedType: typeof otp,
+      match: token === otp 
+    });
     if (token !== otp) {
+      console.log("🔍 DEBUG verifyOTP - Invalid OTP");
       return response.sendBadRequest(res, "Invalid OTP");
     }
 
@@ -235,16 +234,6 @@ const getUserPoints = async (req, res) => {
 
 const completeUserProfile = async (req, res) => {
   try {
-    // Validasi autentikasi
-    // const {
-    //   data: { user },
-    //   error: userError,
-    // } = await supabase.auth.getUser();
-
-    // if (userError || !user) {
-    //   return response.sendUnauthorized(res, "Authentication required");
-    // }
-
     // Validasi data input
     const {
       email,
@@ -253,23 +242,61 @@ const completeUserProfile = async (req, res) => {
       address,
       latitude,
       longitude,
-      age,
+      date_of_birth,
       blood_type,
       last_donation_date,
       health_notes,
       profile_picture,
     } = req.body;
 
+    // Strip + dari phoneNumber jika ada
+    const cleanPhoneNumber = phoneNumber.replace(/^\+/, '');
+
+    // Validasi input wajib
     if (
       !email ||
       !full_name ||
       !address ||
       latitude === undefined ||
       longitude === undefined ||
-      !age ||
-      !blood_type
+      !date_of_birth ||
+      !blood_type ||
+      !cleanPhoneNumber
     ) {
       return response.sendBadRequest(res, "Missing required fields");
+    }
+
+    // Validasi usia berdasarkan date_of_birth (17-65 tahun)
+    const birthDate = new Date(date_of_birth);
+    const today = new Date();
+    const age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    const actualAge = monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate()) ? age - 1 : age;
+
+    if (actualAge < 17 || actualAge > 65) {
+      return response.sendBadRequest(res, "Age must be between 17 and 65 years based on date of birth");
+    }
+
+    // Validasi blood_type enum
+    const validBloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+    if (!validBloodTypes.includes(blood_type)) {
+      return response.sendBadRequest(res, "Invalid blood type");
+    }
+
+    // Check duplikat phone_number atau email
+    const { data: existingUser, error: checkError } = await supabase
+      .from("users")
+      .select("id")
+      .or(`phone_number.eq.${cleanPhoneNumber},email.eq.${email}`)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error("Error checking existing user:", checkError);
+      return response.sendInternalError(res, "Failed to check existing user");
+    }
+
+    if (existingUser) {
+      return response.sendBadRequest(res, "Phone number or email already exists");
     }
 
     // Simpan data ke Supabase
@@ -277,17 +304,20 @@ const completeUserProfile = async (req, res) => {
       .from("users")
       .insert([
         {
-          email: email,
-          phone_number: phoneNumber,
+          email,
+          phone_number: cleanPhoneNumber,
           full_name,
           address,
-          location: `SRID=4326;POINT(${longitude} ${latitude})`,
-          age,
+          location: latitude && longitude
+            ? `SRID=4326;POINT(${longitude} ${latitude})`
+            : null,
+          date_of_birth,
           blood_type,
           last_donation_date,
           health_notes,
           total_points: 0,
           profile_picture,
+          phone_verified: true,  // Set true setelah complete profile
           updated_at: new Date(),
         },
       ])
@@ -298,44 +328,8 @@ const completeUserProfile = async (req, res) => {
       return response.sendBadRequest(res, error.message);
     }
 
-    const user_phone = `+${phoneNumber}`;
-    const bodyToWANotifier = {
-      whatsapp_number: user_phone,
-      first_name: full_name,
-      lists: ["Default"],
-      status: "subscribed",
-      replace: false,
-    };
-
-    // Panggil API WAnotifier - jika gagal, akan masuk ke blok catch
-    try {
-      const waResponse = await axios.post(
-        "https://app.wanotifier.com/api/v1/contacts/?key=I4E2g6TmwOEymmWdKk5DKsrXW3NRdO",
-        bodyToWANotifier
-      );
-      console.log("User added to WAnotifier successfully:", waResponse.data);
-    } catch (waError) {
-      console.error("Error adding user to WAnotifier:", waError);
-
-      // Rollback - hapus user dari Supabase karena WAnotifier gagal
-      const { error: deleteError } = await supabase
-        .from("users")
-        .delete()
-        .match({ email: email, phone_number: phoneNumber });
-
-      if (deleteError) {
-        console.error("Error during rollback:", deleteError);
-      }
-
-      return response.sendBadRequest(
-        res,
-        "Failed to register with notification service: " + waError.message
-      );
-    }
-
     return response.sendCreated(res, {
-      message:
-        "User profile created and phone_number added to WAnotifier successfully",
+      message: "User profile created successfully",
       user: data[0],
     });
   } catch (error) {
@@ -380,10 +374,33 @@ const signInWithWeb = async (req, res) => {
   }
 };
 
+const sendNotification = async (req, res) => {
+  const { phone, message } = req.body;
+
+  if (!phone || !message) {
+    return response.sendBadRequest(res, "Phone number and message are required");
+  }
+
+  try {
+    await sendWhatsAppNotification(phone, message);
+
+    return response.sendSuccess(res, {
+      message: "Notification sent successfully via WhatsApp"
+    });
+  } catch (error) {
+    console.error("Send notification error:", error);
+    return response.sendInternalError(
+      res,
+      "An unexpected error occurred when sending notification"
+    );
+  }
+};
+
 export default {
   signInWithPhone,
   verifyOTP,
   completeUserProfile,
   signInWithWeb,
   getUserPoints,
+  sendNotification,
 };

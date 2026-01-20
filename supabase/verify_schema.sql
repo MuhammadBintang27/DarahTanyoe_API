@@ -58,7 +58,7 @@ SELECT
   phone_number,
   full_name,
   blood_type,
-  age,
+  date_of_birth,
   phone_verified,
   active
 FROM users

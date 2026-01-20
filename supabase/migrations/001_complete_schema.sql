@@ -125,7 +125,7 @@ CREATE TABLE users (
   full_name VARCHAR(100) NOT NULL,
   address TEXT NOT NULL,
   location GEOGRAPHY(POINT, 4326),
-  age INTEGER NOT NULL CHECK (age >= 17 AND age <= 65),
+  date_of_birth DATE NOT NULL,
   blood_type blood_type NOT NULL,
   last_donation_date DATE,
   health_notes TEXT,
@@ -1112,7 +1112,7 @@ BEGIN
             u.full_name,
             u.phone_number,
             u.blood_type,
-            u.age,
+            EXTRACT(YEAR FROM AGE(CURRENT_DATE, u.date_of_birth))::INTEGER AS age,
             u.last_donation_date,
             u.total_donations,
             u.total_rejections,
@@ -1282,7 +1282,7 @@ INSERT INTO institutions (
 
 -- Insert sample donor
 INSERT INTO users (
-  email, phone_number, full_name, address, location, age, blood_type, 
+  email, phone_number, full_name, address, location, date_of_birth, blood_type, 
   active, phone_verified
 ) VALUES (
   'donor@test.com',
@@ -1290,7 +1290,7 @@ INSERT INTO users (
   'Donor Test',
   'Jl. Donor Test No. 1, Jakarta',
   ST_SetSRID(ST_MakePoint(106.8270, -6.2215), 4326)::geography, -- ~3km from PMI
-  25,
+  '2001-01-15', -- Assuming age 25
   'O+',
   true,
   true

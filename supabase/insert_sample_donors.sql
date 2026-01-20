@@ -6,65 +6,65 @@
 -- DONORS WITHIN 5KM (Very Close)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
-('6281234567801', 'Ahmad Pratama', 'Jl. Senopati No. 45, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.8142, -6.2285), 4326)::geography, 28, 'A+', true, true, CURRENT_DATE - INTERVAL '120 days', 5),
-('6281234567802', 'Budi Santoso', 'Jl. Wijaya I No. 23, Kebayoran Baru', ST_SetSRID(ST_MakePoint(106.7954, -6.2403), 4326)::geography, 32, 'B+', true, true, CURRENT_DATE - INTERVAL '90 days', 8),
-('6281234567803', 'Citra Dewi', 'Jl. Panglima Polim No. 67, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.7998, -6.2508), 4326)::geography, 25, 'O+', true, true, CURRENT_DATE - INTERVAL '100 days', 3),
-('6281234567804', 'Doni Kurniawan', 'Jl. Trunojoyo No. 12, Kebayoran Baru', ST_SetSRID(ST_MakePoint(106.7926, -6.2470), 4326)::geography, 30, 'AB+', true, true, NULL, 0),
-('6281234567805', 'Eka Putri', 'Jl. Pattimura No. 89, Kebayoran Baru', ST_SetSRID(ST_MakePoint(106.7980, -6.2450), 4326)::geography, 27, 'A+', true, true, CURRENT_DATE - INTERVAL '95 days', 4);
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+('6281234567801', 'Ahmad Pratama', 'Jl. Senopati No. 45, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.8142, -6.2285), 4326)::geography, '1996-01-15', 'A+', true, true, CURRENT_DATE - INTERVAL '120 days', 5),
+('6281234567802', 'Budi Santoso', 'Jl. Wijaya I No. 23, Kebayoran Baru', ST_SetSRID(ST_MakePoint(106.7954, -6.2403), 4326)::geography, '1992-03-20', 'B+', true, true, CURRENT_DATE - INTERVAL '90 days', 8),
+('6281234567803', 'Citra Dewi', 'Jl. Panglima Polim No. 67, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.7998, -6.2508), 4326)::geography, '1999-07-10', 'O+', true, true, CURRENT_DATE - INTERVAL '100 days', 3),
+('6281234567804', 'Doni Kurniawan', 'Jl. Trunojoyo No. 12, Kebayoran Baru', ST_SetSRID(ST_MakePoint(106.7926, -6.2470), 4326)::geography, '1994-11-05', 'AB+', true, true, NULL, 0),
+('6281234567805', 'Eka Putri', 'Jl. Pattimura No. 89, Kebayoran Baru', ST_SetSRID(ST_MakePoint(106.7980, -6.2450), 4326)::geography, '1997-09-25', 'A+', true, true, CURRENT_DATE - INTERVAL '95 days', 4);
 
 -- ========================================
 -- DONORS 5-10KM (Moderate Distance)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
-('6281234567806', 'Fajar Hidayat', 'Jl. Casablanca No. 88, Tebet', ST_SetSRID(ST_MakePoint(106.8429, -6.2249), 4326)::geography, 29, 'B+', true, true, CURRENT_DATE - INTERVAL '110 days', 6),
-('6281234567807', 'Gita Maharani', 'Jl. Mampang Prapatan Raya No. 45', ST_SetSRID(ST_MakePoint(106.8298, -6.2601), 4326)::geography, 26, 'O+', true, true, CURRENT_DATE - INTERVAL '85 days', 7),
-('6281234567808', 'Hendra Wijaya', 'Jl. Kuningan Barat No. 30', ST_SetSRID(ST_MakePoint(106.8207, -6.2287), 4326)::geography, 31, 'A-', true, true, CURRENT_DATE - INTERVAL '120 days', 2),
-('6281234567809', 'Indah Sari', 'Jl. Sisingamangaraja No. 56', ST_SetSRID(ST_MakePoint(106.7995, -6.2680), 4326)::geography, 24, 'AB+', true, true, NULL, 0),
-('6281234567810', 'Joko Susilo', 'Jl. TB Simatupang No. 123, Cilandak', ST_SetSRID(ST_MakePoint(106.7876, -6.2982), 4326)::geography, 35, 'O+', true, true, CURRENT_DATE - INTERVAL '100 days', 9);
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+('6281234567806', 'Fajar Hidayat', 'Jl. Casablanca No. 88, Tebet', ST_SetSRID(ST_MakePoint(106.8429, -6.2249), 4326)::geography, '1995-05-12', 'B+', true, true, CURRENT_DATE - INTERVAL '110 days', 6),
+('6281234567807', 'Gita Maharani', 'Jl. Mampang Prapatan Raya No. 45', ST_SetSRID(ST_MakePoint(106.8298, -6.2601), 4326)::geography, '1998-12-18', 'O+', true, true, CURRENT_DATE - INTERVAL '85 days', 7),
+('6281234567808', 'Hendra Wijaya', 'Jl. Kuningan Barat No. 30', ST_SetSRID(ST_MakePoint(106.8207, -6.2287), 4326)::geography, '1993-08-30', 'A-', true, true, CURRENT_DATE - INTERVAL '120 days', 2),
+('6281234567809', 'Indah Sari', 'Jl. Sisingamangaraja No. 56', ST_SetSRID(ST_MakePoint(106.7995, -6.2680), 4326)::geography, '2000-04-22', 'AB+', true, true, NULL, 0),
+('6281234567810', 'Joko Susilo', 'Jl. TB Simatupang No. 123, Cilandak', ST_SetSRID(ST_MakePoint(106.7876, -6.2982), 4326)::geography, '1989-06-14', 'O+', true, true, CURRENT_DATE - INTERVAL '100 days', 9);
 
 -- ========================================
 -- DONORS 10-15KM (Far but Eligible)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
-('6281234567811', 'Kartika Putri', 'Jl. Pancoran No. 67, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.8498, -6.2532), 4326)::geography, 28, 'B+', true, true, CURRENT_DATE - INTERVAL '130 days', 3),
-('6281234567812', 'Luthfi Rahman', 'Jl. Ragunan No. 45, Pasar Minggu', ST_SetSRID(ST_MakePoint(106.8212, -6.2989), 4326)::geography, 33, 'A+', true, true, CURRENT_DATE - INTERVAL '90 days', 5),
-('6281234567813', 'Maya Anjani', 'Jl. Fatmawati No. 78, Cilandak', ST_SetSRID(ST_MakePoint(106.7941, -6.2842), 4326)::geography, 26, 'O-', true, true, CURRENT_DATE - INTERVAL '105 days', 4),
-('6281234567814', 'Nanda Permana', 'Jl. Radio Dalam No. 12', ST_SetSRID(ST_MakePoint(106.7894, -6.2612), 4326)::geography, 29, 'A+', true, true, NULL, 0),
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+('6281234567811', 'Kartika Putri', 'Jl. Pancoran No. 67, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.8498, -6.2532), 4326)::geography, '1996-02-28', 'B+', true, true, CURRENT_DATE - INTERVAL '130 days', 3),
+('6281234567812', 'Luthfi Rahman', 'Jl. Ragunan No. 45, Pasar Minggu', ST_SetSRID(ST_MakePoint(106.8212, -6.2989), 4326)::geography, '1991-10-11', 'A+', true, true, CURRENT_DATE - INTERVAL '90 days', 5),
+('6281234567813', 'Maya Anjani', 'Jl. Fatmawati No. 78, Cilandak', ST_SetSRID(ST_MakePoint(106.7941, -6.2842), 4326)::geography, '1998-01-05', 'O-', true, true, CURRENT_DATE - INTERVAL '105 days', 4),
+('6281234567814', 'Nanda Permana', 'Jl. Radio Dalam No. 12', ST_SetSRID(ST_MakePoint(106.7894, -6.2612), 4326)::geography, '1995-07-19', 'A+', true, true, NULL, 0),
 ('6281234567815', 'Olivia Tan', 'Jl. Warung Buncit No. 34', ST_SetSRID(ST_MakePoint(106.8356, -6.2735), 4326)::geography, 27, 'B-', true, true, CURRENT_DATE - INTERVAL '115 days', 6);
 
 -- ========================================
 -- DONORS 15-20KM (Edge of Search Radius)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
-('6281234567816', 'Putra Mahendra', 'Jl. Pasar Minggu Raya No. 89', ST_SetSRID(ST_MakePoint(106.8445, -6.2898), 4326)::geography, 30, 'O+', true, true, CURRENT_DATE - INTERVAL '140 days', 2),
-('6281234567817', 'Qori Handayani', 'Jl. Cipete Raya No. 56', ST_SetSRID(ST_MakePoint(106.7865, -6.2789), 4326)::geography, 25, 'AB-', true, true, CURRENT_DATE - INTERVAL '95 days', 7),
-('6281234567818', 'Reza Kurniawan', 'Jl. Ampera Raya No. 123, Pejaten', ST_SetSRID(ST_MakePoint(106.8512, -6.2612), 4326)::geography, 32, 'A+', true, true, CURRENT_DATE - INTERVAL '110 days', 4),
-('6281234567819', 'Siska Amelia', 'Jl. Condet No. 45, Jakarta Timur', ST_SetSRID(ST_MakePoint(106.8689, -6.2823), 4326)::geography, 28, 'B+', true, true, NULL, 0),
-('6281234567820', 'Toni Gunawan', 'Jl. Kemang Raya No. 67', ST_SetSRID(ST_MakePoint(106.8156, -6.2645), 4326)::geography, 31, 'O+', true, true, CURRENT_DATE - INTERVAL '125 days', 8);
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+('6281234567816', 'Putra Mahendra', 'Jl. Pasar Minggu Raya No. 89', ST_SetSRID(ST_MakePoint(106.8445, -6.2898), 4326)::geography, '1994-09-03', 'O+', true, true, CURRENT_DATE - INTERVAL '140 days', 2),
+('6281234567817', 'Qori Handayani', 'Jl. Cipete Raya No. 56', ST_SetSRID(ST_MakePoint(106.7865, -6.2789), 4326)::geography, '1999-11-27', 'AB-', true, true, CURRENT_DATE - INTERVAL '95 days', 7),
+('6281234567818', 'Reza Kurniawan', 'Jl. Ampera Raya No. 123, Pejaten', ST_SetSRID(ST_MakePoint(106.8512, -6.2612), 4326)::geography, '1992-12-15', 'A+', true, true, CURRENT_DATE - INTERVAL '110 days', 4),
+('6281234567819', 'Siska Amelia', 'Jl. Condet No. 45, Jakarta Timur', ST_SetSRID(ST_MakePoint(106.8689, -6.2823), 4326)::geography, '1996-06-08', 'B+', true, true, NULL, 0),
+('6281234567820', 'Toni Gunawan', 'Jl. Kemang Raya No. 67', ST_SetSRID(ST_MakePoint(106.8156, -6.2645), 4326)::geography, '1993-04-21', 'O+', true, true, CURRENT_DATE - INTERVAL '125 days', 8);
 
 -- ========================================
 -- DONORS > 20KM (Out of Range - For Testing)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
-('6281234567821', 'Umar Fauzi', 'Jl. Cibubur No. 123, Jakarta Timur', ST_SetSRID(ST_MakePoint(106.8934, -6.3543), 4326)::geography, 34, 'A+', true, true, CURRENT_DATE - INTERVAL '100 days', 5),
-('6281234567822', 'Vina Melati', 'Jl. Depok Raya No. 45, Depok', ST_SetSRID(ST_MakePoint(106.7987, -6.4012), 4326)::geography, 26, 'B+', true, true, CURRENT_DATE - INTERVAL '90 days', 3),
-('6281234567823', 'Wahyu Hidayat', 'Jl. Pondok Indah No. 67', ST_SetSRID(ST_MakePoint(106.7845, -6.2654), 4326)::geography, 29, 'O+', true, true, NULL, 0),
-('6281234567824', 'Xenia Putri', 'Jl. Jagakarsa No. 89, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.8234, -6.3412), 4326)::geography, 27, 'AB+', true, true, CURRENT_DATE - INTERVAL '120 days', 4),
-('6281234567825', 'Yudi Santoso', 'Jl. Lebak Bulus No. 34', ST_SetSRID(ST_MakePoint(106.7678, -6.2923), 4326)::geography, 30, 'A-', true, true, CURRENT_DATE - INTERVAL '105 days', 6);
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+('6281234567821', 'Umar Fauzi', 'Jl. Cibubur No. 123, Jakarta Timur', ST_SetSRID(ST_MakePoint(106.8934, -6.3543), 4326)::geography, '1990-07-22', 'A+', true, true, CURRENT_DATE - INTERVAL '100 days', 5),
+('6281234567822', 'Vina Melati', 'Jl. Depok Raya No. 45, Depok', ST_SetSRID(ST_MakePoint(106.7987, -6.4012), 4326)::geography, '1998-08-09', 'B+', true, true, CURRENT_DATE - INTERVAL '90 days', 3),
+('6281234567823', 'Wahyu Hidayat', 'Jl. Pondok Indah No. 67', ST_SetSRID(ST_MakePoint(106.7845, -6.2654), 4326)::geography, '1995-12-01', 'O+', true, true, NULL, 0),
+('6281234567824', 'Xenia Putri', 'Jl. Jagakarsa No. 89, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.8234, -6.3412), 4326)::geography, '1997-05-16', 'AB+', true, true, CURRENT_DATE - INTERVAL '120 days', 4),
+('6281234567825', 'Yudi Santoso', 'Jl. Lebak Bulus No. 34', ST_SetSRID(ST_MakePoint(106.7678, -6.2923), 4326)::geography, '1994-10-25', 'A-', true, true, CURRENT_DATE - INTERVAL '105 days', 6);
 
 -- ========================================
 -- RECENTLY DONATED (Not Eligible - < 8 weeks)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
-('6281234567826', 'Zahra Amira', 'Jl. Senopati No. 12, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.8132, -6.2295), 4326)::geography, 25, 'O+', true, true, CURRENT_DATE - INTERVAL '30 days', 10),
-('6281234567827', 'Agus Setiawan', 'Jl. Wijaya II No. 34', ST_SetSRID(ST_MakePoint(106.7964, -6.2413), 4326)::geography, 33, 'A+', true, true, CURRENT_DATE - INTERVAL '45 days', 12),
-('6281234567828', 'Bella Safitri', 'Jl. Panglima Polim No. 56', ST_SetSRID(ST_MakePoint(106.8008, -6.2518), 4326)::geography, 28, 'B+', true, true, CURRENT_DATE - INTERVAL '20 days', 8);
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+('6281234567826', 'Zahra Amira', 'Jl. Senopati No. 12, Jakarta Selatan', ST_SetSRID(ST_MakePoint(106.8132, -6.2295), 4326)::geography, '1999-01-30', 'O+', true, true, CURRENT_DATE - INTERVAL '30 days', 10),
+('6281234567827', 'Agus Setiawan', 'Jl. Wijaya II No. 34', ST_SetSRID(ST_MakePoint(106.7964, -6.2413), 4326)::geography, '1991-09-17', 'A+', true, true, CURRENT_DATE - INTERVAL '45 days', 12),
+('6281234567828', 'Bella Safitri', 'Jl. Panglima Polim No. 56', ST_SetSRID(ST_MakePoint(106.8008, -6.2518), 4326)::geography, '1996-11-12', 'B+', true, true, CURRENT_DATE - INTERVAL '20 days', 8);
 
 -- ========================================
 -- HIGH COMMITMENT RATE (Campaign Active Users)

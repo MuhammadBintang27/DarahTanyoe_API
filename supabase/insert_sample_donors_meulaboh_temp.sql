@@ -35,7 +35,7 @@ INSERT INTO users (phone_number, full_name, address, location, date_of_birth, bl
 -- DONORS 10-15KM (Far but Eligible)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
 ('6285277001011', 'Fahmi Ramadhan', 'Gampong Krueng Kala, Meulaboh', ST_SetSRID(ST_MakePoint(96.0987, 4.1687), 4326)::geography, 33, 'B+', true, true, CURRENT_DATE - INTERVAL '130 days', 3),
 ('6285277001012', 'Mariana', 'Desa Ujong Tanoh, Johan Pahlawan', ST_SetSRID(ST_MakePoint(96.0845, 4.1545), 4326)::geography, 27, 'A+', true, true, CURRENT_DATE - INTERVAL '95 days', 4),
 ('6285277001013', 'Saiful Bahri', 'Gampong Keutapang, Meulaboh', ST_SetSRID(ST_MakePoint(96.1698, 4.1198), 4326)::geography, 30, 'O-', true, true, CURRENT_DATE - INTERVAL '120 days', 6),
@@ -46,7 +46,7 @@ INSERT INTO users (phone_number, full_name, address, location, age, blood_type, 
 -- DONORS 15-20KM (Edge of Search Radius)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
 ('6285277001016', 'Zulfikar', 'Desa Kuala Bhee, Meulaboh', ST_SetSRID(ST_MakePoint(96.0698, 4.1598), 4326)::geography, 32, 'O+', true, true, CURRENT_DATE - INTERVAL '140 days', 2),
 ('6285277001017', 'Hanna Safitri', 'Gampong Pasi Jambu, Johan Pahlawan', ST_SetSRID(ST_MakePoint(96.0745, 4.1712), 4326)::geography, 26, 'AB-', true, true, CURRENT_DATE - INTERVAL '110 days', 5),
 ('6285277001018', 'Ridwan Abdullah', 'Desa Alue Ie Mameh, Meulaboh', ST_SetSRID(ST_MakePoint(96.1845, 4.1089), 4326)::geography, 28, 'A+', true, true, CURRENT_DATE - INTERVAL '125 days', 4),
@@ -57,7 +57,7 @@ INSERT INTO users (phone_number, full_name, address, location, age, blood_type, 
 -- DONORS > 20KM (Out of Range - For Testing)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
 ('6285277001021', 'Azhari', 'Desa Pante Ceureumen, Sungai Mas', ST_SetSRID(ST_MakePoint(96.0345, 4.2012), 4326)::geography, 34, 'A+', true, true, CURRENT_DATE - INTERVAL '100 days', 5),
 ('6285277001022', 'Fitria Ningsih', 'Gampong Babah Krueng, Woyla', ST_SetSRID(ST_MakePoint(96.2156, 4.0989), 4326)::geography, 27, 'B+', true, true, CURRENT_DATE - INTERVAL '90 days', 3),
 ('6285277001023', 'Muhammad Yusuf', 'Desa Lhok Banie, Samatiga', ST_SetSRID(ST_MakePoint(96.0198, 4.2198), 4326)::geography, 29, 'O+', true, true, NULL, 0),
@@ -68,7 +68,7 @@ INSERT INTO users (phone_number, full_name, address, location, age, blood_type, 
 -- RECENTLY DONATED (Not Eligible - < 8 weeks)
 -- ========================================
 
-INSERT INTO users (phone_number, full_name, address, location, age, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
+INSERT INTO users (phone_number, full_name, address, location, date_of_birth, blood_type, active, phone_verified, last_donation_date, total_donations) VALUES
 ('6285277001026', 'Hasanah', 'Jl. Teuku Umar No. 34, Meulaboh', ST_SetSRID(ST_MakePoint(96.1368, 4.1418), 4326)::geography, 26, 'O+', true, true, CURRENT_DATE - INTERVAL '30 days', 10),
 ('6285277001027', 'Faisal Rahman', 'Jl. Ahmad Yani No. 56, Meulaboh', ST_SetSRID(ST_MakePoint(96.1382, 4.1435), 4326)::geography, 33, 'A+', true, true, CURRENT_DATE - INTERVAL '45 days', 12),
 ('6285277001028', 'Nurhayati', 'Jl. Merdeka No. 78, Meulaboh', ST_SetSRID(ST_MakePoint(96.1335, 4.1442), 4326)::geography, 28, 'B+', true, true, CURRENT_DATE - INTERVAL '20 days', 8);

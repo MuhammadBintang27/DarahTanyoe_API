@@ -20,7 +20,7 @@ const port = process.env.PORT || 4000;
 
 // CORS configuration with credentials support
 const corsOptions = {
-  origin: 'http://localhost:3000', // Frontend URL
+  origin: '*', // Allow all origins for debugging
   credentials: true, // Allow credentials (cookies, authorization headers)
   optionsSuccessStatus: 200
 };
@@ -40,6 +40,12 @@ app.use('/pickup-schedules', pickupScheduleRouter);
 app.use('/blood-stock-history', bloodStockHistoryRouter);
 app.use('/fulfillment', fulfillmentRouter);
 app.use('/campaigns', campaignRouter);
+
+// Middleware untuk logging request
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
 
 app.get('/', (req, res) => {
   res.send('Welcome to the DarahTanyoe API');

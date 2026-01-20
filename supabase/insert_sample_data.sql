@@ -66,7 +66,7 @@ INSERT INTO users (
   phone_number, 
   full_name, 
   address, 
-  age, 
+  date_of_birth, 
   blood_type, 
   active, 
   phone_verified
@@ -75,7 +75,7 @@ INSERT INTO users (
   '628123456789',
   'Donor Test',
   'Jl. Donor Test No. 1, Jakarta',
-  25,
+  '1999-01-01',
   'O+'::blood_type,
   true,
   true
