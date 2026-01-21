@@ -3,6 +3,9 @@ import campaignController from "../controllers/campaignController.js";
 
 const campaignRouter = express.Router();
 
+// Get nearest campaigns for a donor
+campaignRouter.get("/nearby/:userId", campaignController.getNearestCampaigns);
+
 // Create campaign
 campaignRouter.post("/", campaignController.createCampaign);
 

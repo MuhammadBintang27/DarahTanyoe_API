@@ -3,7 +3,16 @@ import fulfillmentController from "../controllers/fulfillmentController.js";
 
 const fulfillmentRouter = express.Router();
 
-// Create fulfillment request
+// ✅ NEW: Step 1 - Search and create campaign (without notifications)
+fulfillmentRouter.post("/search-and-create", fulfillmentController.searchAndCreateCampaign);
+
+// ✅ NEW: Search eligible donors for existing fulfillment (called from pemenuhan page)
+fulfillmentRouter.get("/:fulfillment_id/search-donors", fulfillmentController.searchEligibleDonorsForFulfillment);
+
+// ✅ NEW: Step 2 - Send notifications to selected number of donors
+fulfillmentRouter.post("/:campaign_id/send-notifications", fulfillmentController.sendNotificationsToSelectedDonors);
+
+// Legacy: Create fulfillment request (backward compatible - auto-notifies all)
 fulfillmentRouter.post("/", fulfillmentController.createFulfillmentRequest);
 
 // Get all fulfillment requests

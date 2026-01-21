@@ -79,6 +79,7 @@ CREATE TYPE fulfillment_status AS ENUM (
 
 -- Donor Confirmation Status Enum
 CREATE TYPE confirmation_status AS ENUM (
+    'pending_notification', -- ✅ NEW: Created in DB, waiting to send notification
   'pending',        -- Menunggu pendonor confirm via notifikasi
   'confirmed',      -- Pendonor confirm, code sudah di-generate
   'code_verified',  -- PMI verify code, pendonor di-verifikasi
@@ -350,8 +351,10 @@ CREATE TABLE pickup_schedules (
 -- ========================================
 
 -- Blood Campaigns Table
+-- Unified table for both event-based campaigns and fulfillment campaigns
 CREATE TABLE blood_campaigns (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  type VARCHAR(20) CHECK (type IN ('event', 'fulfillment')) DEFAULT 'event',
   organizer_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL,
   description TEXT,

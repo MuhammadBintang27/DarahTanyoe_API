@@ -157,6 +157,14 @@ const createCampaign = async (req, res) => {
                 .from("donor_confirmations")
                 .insert(confirmations);
 
+              // ✅ Auto-activate campaign once donors are found and confirmations created
+              await supabase
+                .from("blood_campaigns")
+                .update({ status: 'active' })
+                .eq("id", newCampaign.id);
+
+              console.log("✅ Campaign activated automatically:", newCampaign.id);
+
               // Send notifications to top donors
               for (const donor of eligibleDonors.slice(0, 50)) {
                 try {
@@ -479,12 +487,192 @@ const registerToCampaign = async (req, res) => {
   }
 };
 
+/**
+ * Get nearest campaigns for a donor
+ * Returns campaigns within specified radius, sorted by distance
+ */
+const getNearestCampaigns = async (req, res) => {
+  const { userId } = req.params;
+  const { radiusKm = 20, bloodType } = req.query;
+
+  try {
+    // Get user location
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("location, blood_type")
+      .eq("id", userId)
+      .single();
+
+    if (userError || !userData) {
+      console.log("❌ User not found:", userId);
+      return response.sendBadRequest(res, "User not found");
+    }
+
+    if (!userData.location) {
+      console.log("❌ User location not set for user:", userId);
+      return response.sendBadRequest(res, "User location not set");
+    }
+
+    console.log("✅ User found:", userId);
+    console.log("📍 User location:", userData.location);
+
+    // Get campaign IDs that user already received notifications for
+    const { data: notifiedCampaigns, error: notifiedError } = await supabase
+      .from("donor_confirmations")
+      .select("fulfillment_requests(campaign_id)")
+      .eq("donor_id", userId)
+      .not("status", "eq", "pending_notification"); // Got actual notifications
+
+    const campaignIds = (notifiedCampaigns || [])
+      .map(dc => dc.fulfillment_requests?.campaign_id)
+      .filter(id => id !== null);
+
+    console.log(`📬 User received notifications for ${campaignIds.length} campaigns`);
+
+    if (campaignIds.length === 0) {
+      console.log("ℹ️ User has no notified campaigns yet");
+      return response.sendSuccess(res, {
+        message: "No nearby campaigns with notifications yet",
+        data: [],
+        count: 0,
+        user_location: {
+          latitude: userData.location.coordinates ? userData.location.coordinates[1] : userData.location.lat,
+          longitude: userData.location.coordinates ? userData.location.coordinates[0] : userData.location.lon
+        }
+      });
+    }
+
+    console.log(`📋 Campaign IDs to query:`, campaignIds);
+
+    // Get only campaigns that user received notifications for
+    let query = supabase
+      .from("blood_campaigns")
+      .select(`
+        *,
+        organizer:institutions!blood_campaigns_organizer_id_fkey(
+          id,
+          institution_name,
+          institution_type,
+          address,
+          phone_number
+        ),
+        related_blood_request:blood_requests!blood_campaigns_related_request_fkey(
+          id,
+          blood_type,
+          quantity,
+          patient_name,
+          urgency_level
+        )
+      `)
+      .in("id", campaignIds)
+      .eq("status", "active");
+
+    // Filter by blood type if needed
+    if (bloodType) {
+      query = query.eq("blood_type", bloodType);
+    }
+
+    const { data: campaigns, error: campaignsError } = await query;
+
+    if (campaignsError) {
+      console.log("❌ Query error:", campaignsError);
+      return response.sendServerError(res, campaignsError.message);
+    }
+
+    console.log("📊 Campaigns found with status='active':", campaigns?.length || 0);
+    if (campaigns && campaigns.length > 0) {
+      campaigns.forEach(c => {
+        console.log(`  ✅ ${c.id} - ${c.title} (status: ${c.status})`);
+      });
+    }
+
+    // Just return campaigns, no distance calculation needed
+    const nearestCampaigns = campaigns.filter(c => c !== null);
+
+    console.log("✅ Final campaigns found:", nearestCampaigns.length);
+    nearestCampaigns.forEach(c => {
+      console.log(`  📍 ${c.title}`);
+    });
+
+    // Extract user coordinates for response
+    let userLon, userLat;
+    if (userData.location.coordinates) {
+      [userLon, userLat] = userData.location.coordinates;
+    } else {
+      userLon = userData.location.lon || userData.location.longitude;
+      userLat = userData.location.lat || userData.location.latitude;
+    }
+
+    return response.sendSuccess(res, {
+      message: "Campaigns retrieved successfully",
+      data: nearestCampaigns,
+      count: nearestCampaigns.length,
+      user_location: {
+        latitude: userLat,
+        longitude: userLon
+      }
+    });
+  } catch (error) {
+    console.error("Get nearest campaigns error:", error);
+    return response.sendServerError(res, error.message);
+  }
+};
+
+/**
+ * Debug endpoint - Check all campaigns and their status
+ */
+const debugCampaigns = async (req, res) => {
+  try {
+    const { data: campaigns } = await supabase
+      .from("blood_campaigns")
+      .select("id, title, status, campaign_location, location, address");
+
+    const { data: users } = await supabase
+      .from("users")
+      .select("id, email, location, blood_type");
+
+    console.log("\n📊 === CAMPAIGN DEBUG ===");
+    console.log("Total campaigns:", campaigns?.length || 0);
+    campaigns?.forEach(c => {
+      console.log(`  ${c.id} | ${c.title.substring(0, 30)} | status: ${c.status} | location: ${c.campaign_location ? 'SET' : 'EMPTY'} | ${c.location}`);
+    });
+
+    console.log("\n👥 === USER LOCATIONS ===");
+    console.log("Total users:", users?.length || 0);
+    users?.forEach(u => {
+      console.log(`  ${u.id} | ${u.email} | ${u.blood_type} | location: ${u.location ? 'SET' : 'EMPTY'}`);
+    });
+
+    return response.sendSuccess(res, {
+      message: "Debug info",
+      campaigns: campaigns?.map(c => ({
+        id: c.id,
+        title: c.title,
+        status: c.status,
+        location: c.location,
+        has_coordinates: !!c.campaign_location
+      })),
+      users: users?.map(u => ({
+        id: u.id,
+        email: u.email,
+        blood_type: u.blood_type,
+        has_location: !!u.location
+      }))
+    });
+  } catch (error) {
+    console.error("Debug error:", error);
+    return response.sendServerError(res, error.message);
+  }
+};
+
 export default {
   createCampaign,
   getAllCampaigns,
   getCampaignById,
+  getNearestCampaigns,
   updateCampaign,
   activateCampaign,
   cancelCampaign,
-  registerToCampaign
+  registerToCampaign,
+  debugCampaigns
 };
