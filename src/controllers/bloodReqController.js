@@ -4,6 +4,41 @@ import response from "../helpers/responses.js";
 import { DateTime } from "luxon";
 import notificationService from "../services/notificationService.js";
 
+/**
+ * Extract latitude & longitude dari PostGIS location field
+ * Handles:
+ * - WKT format: "POINT(95.367856 5.569069)"
+ * - GeoJSON format: {type: "Point", coordinates: [lng, lat]}
+ */
+const extractCoordinatesFromLocation = (location) => {
+  if (!location) return null;
+
+  try {
+    // Format 1: WKT "POINT(longitude latitude)"
+    if (typeof location === 'string') {
+      const wktMatch = location.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/i);
+      if (wktMatch) {
+        return {
+          longitude: parseFloat(wktMatch[1]),
+          latitude: parseFloat(wktMatch[2])
+        };
+      }
+    }
+
+    // Format 2: GeoJSON {type: "Point", coordinates: [lng, lat]}
+    if (typeof location === 'object' && location.type === 'Point' && Array.isArray(location.coordinates)) {
+      return {
+        longitude: location.coordinates[0],
+        latitude: location.coordinates[1]
+      };
+    }
+  } catch (e) {
+    console.warn('⚠️ Error extracting coordinates from location:', e.message);
+  }
+
+  return null;
+};
+
 const createBloodReq = async (req, res) => {
   const requestBody = req.body;
 
@@ -69,6 +104,61 @@ const createBloodReq = async (req, res) => {
     });
   } catch (error) {
     console.error("Create blood request error:", error);
+    return response.sendInternalError(res, "An unexpected error occurred");
+  }
+};
+
+const getBloodRequestById = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { data, error } = await supabase
+      .from("blood_requests")
+      .select(`
+        *,
+        requester:institutions!blood_requests_requester_id_fkey(
+          id,
+          institution_name,
+          institution_type,
+          address,
+          phone_number
+        ),
+        partner:institutions!blood_requests_partner_id_fkey(
+          id,
+          institution_name,
+          institution_type
+        )
+      `)
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      return response.sendInternalError(res, error.message);
+    }
+
+    if (!data) {
+      return response.sendNotFound(res, "Blood request not found");
+    }
+
+    // Extract coordinates from PostGIS location if available
+    if (data.location) {
+      try {
+        const coords = extractCoordinatesFromLocation(data.location);
+        if (coords) {
+          data.latitude = coords.latitude;
+          data.longitude = coords.longitude;
+        }
+      } catch (e) {
+        console.warn('Could not extract coordinates:', e.message);
+      }
+    }
+
+    return response.sendSuccess(res, {
+      data,
+      message: "Successfully retrieved blood request details",
+    });
+  } catch (error) {
+    console.error("Get blood request error:", error);
     return response.sendInternalError(res, "An unexpected error occurred");
   }
 };
@@ -288,6 +378,7 @@ const verifyUniqueCode = async (req, res) => {
 export default {
   createBloodReq,
   getBloodReqByUserId,
+  getBloodRequestById,
   getBloodReqByPartnerId,
   getNearbyBloodRequests,
   patchBloodRequestStatus,

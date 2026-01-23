@@ -6,6 +6,7 @@ import bloodReqRouter from './routes/bloodReqRouter.js';
 import partnerRouter from './routes/partnerRouter.js';
 import bloodDonorRouter from './routes/bloodDonorRouter.js';
 import notificationRouter from './routes/notificationRouter.js';
+import pushNotificationRouter from './routes/pushNotificationRouter.js';
 import institutionRouter from './routes/institutionRouter.js';
 import bloodStockRouter from './routes/bloodStockRouter.js';
 import pickupScheduleRouter from './routes/pickupScheduleRouter.js';
@@ -40,13 +41,14 @@ app.use('/users', userRouter);
 app.use('/bloodReq', bloodReqRouter);
 app.use('/partners', partnerRouter);
 app.use('/donor', bloodDonorRouter);
-app.use('/notification', notificationRouter);
+app.use('/notifications', notificationRouter);
 app.use('/institutions', institutionRouter);
 app.use('/blood-stock', bloodStockRouter);
 app.use('/pickup-schedules', pickupScheduleRouter);
 app.use('/blood-stock-history', bloodStockHistoryRouter);
 app.use('/fulfillment', fulfillmentRouter);
 app.use('/campaigns', campaignRouter);
+app.use('/notifications', pushNotificationRouter);
 
 // Middleware untuk logging request
 app.use((req, res, next) => {

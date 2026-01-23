@@ -514,6 +514,7 @@ CREATE TABLE donor_confirmations (
   check_in_time TIMESTAMPTZ,
   check_out_time TIMESTAMPTZ,
   notes TEXT,
+  distance_km NUMERIC(10, 2),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   
@@ -702,6 +703,7 @@ CREATE INDEX idx_donor_confirmations_status ON donor_confirmations(status);
 CREATE INDEX idx_donor_confirmations_unique_code ON donor_confirmations(unique_code);
 CREATE INDEX idx_donor_confirmations_expires_at ON donor_confirmations(code_expires_at);
 CREATE INDEX idx_donor_confirmations_verified ON donor_confirmations(code_verified);
+CREATE INDEX idx_donor_confirmations_distance ON donor_confirmations(distance_km);
 
 -- ========================================
 -- TRIGGERS FOR AUTOMATION

@@ -153,8 +153,9 @@ const searchAndCreateCampaign = async (req, res) => {
       const confirmations = eligibleDonors.map(donor => ({
         fulfillment_request_id: fulfillmentRequest.id,
         campaign_id: campaignId,
-        donor_id: donor.donor_id,
+        donor_id: donor.donor_id, // RPC returns 'donor_id'
         status: 'pending_notification', // ✅ NEW: distinct from 'pending' (which means notified)
+        distance_km: donor.distance_km, // ✅ RPC returns 'distance_km'
         code_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       }));
 
@@ -275,7 +276,7 @@ const searchEligibleDonorsForFulfillment = async (req, res) => {
 
     // Filter out donors that are already in confirmations
     const eligibleDonors = (allEligibleDonors || []).filter(
-      donor => !alreadyNotifiedDonorIds.includes(donor.donor_id)
+      donor => !alreadyNotifiedDonorIds.includes(donor.donor_id) // RPC returns 'donor_id'
     );
 
     const donorsFound = eligibleDonors.length;
@@ -285,8 +286,9 @@ const searchEligibleDonorsForFulfillment = async (req, res) => {
     if (eligibleDonors && eligibleDonors.length > 0) {
       const confirmations = eligibleDonors.map(donor => ({
         fulfillment_request_id: fulfillment_id,
-        donor_id: donor.donor_id,
+        donor_id: donor.donor_id, // RPC returns 'donor_id'
         status: 'pending_notification',
+        distance_km: donor.distance_km, // RPC returns 'distance_km'
         code_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       }));
 
@@ -358,7 +360,8 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
       .from("donor_confirmations")
       .select(`
         id,
-        donor_id
+        donor_id,
+        distance_km
       `)
       .eq("fulfillment_request_id", fulfillment_id)
       .eq("status", 'pending_notification')
@@ -1112,8 +1115,9 @@ const initiateFulfillment = async (req, res) => {
       const confirmations = eligibleDonors.map(donor => ({
         fulfillment_request_id: fulfillment_id,
         campaign_id: fulfillment.campaign_id,
-        donor_id: donor.donor_id,
+        donor_id: donor.donor_id, // RPC returns 'donor_id'
         status: 'pending',
+        distance_km: donor.distance_km, // RPC returns 'distance_km'
         code_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       }));
 

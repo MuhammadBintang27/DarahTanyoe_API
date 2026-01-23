@@ -39,15 +39,21 @@ class NotificationService {
   }
 
   /**
-   * Get active push tokens for institution
+   * Get active push tokens for user or institution
    */
-  async getPushTokens(institutionId) {
+  async getPushTokens(userId, institutionId = null) {
     try {
-      const { data, error } = await supabase
-        .from('push_tokens')
-        .select('token, platform, device_id')
-        .eq('institution_id', institutionId)
-        .eq('active', true);
+      let query = supabase.from('push_tokens').select('token, platform, device_id').eq('active', true);
+      
+      if (userId) {
+        query = query.eq('user_id', userId);
+      } else if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      } else {
+        return [];
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error('❌ Error fetching push tokens:', error);
@@ -267,13 +273,15 @@ class NotificationService {
         email: null,
       };
 
-      // 2. Send push notification if enabled and institutionId provided
-      if (sendPush && institutionId) {
-        const tokens = await this.getPushTokens(institutionId);
+      // 2. Send push notification if enabled and user/institution provided
+      if (sendPush && (userId || institutionId)) {
+        const tokens = await this.getPushTokens(userId, institutionId);
         if (tokens.length > 0) {
+          console.log(`🔔 Found ${tokens.length} push tokens for ${userId ? 'user' : 'institution'}`);
           results.push = await this.sendPushNotification(tokens, notification);
         } else {
           results.push = { success: false, message: 'No tokens registered' };
+          console.log(`⚠️  No push tokens found for ${userId || institutionId}`);
         }
       }
 
