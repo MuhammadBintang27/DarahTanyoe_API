@@ -605,11 +605,14 @@ const getNearestCampaigns = async (req, res) => {
     console.log("📍 User location:", userData.location);
 
     // Get campaign IDs that user already received notifications for
+    // ✅ EXCLUDE: Campaigns where donor already completed OR campaigns already completed
     const { data: notifiedCampaigns, error: notifiedError } = await supabase
       .from("donor_confirmations")
       .select("fulfillment_requests(campaign_id)")
       .eq("donor_id", userId)
-      .not("status", "eq", "pending_notification"); // Got actual notifications
+      .not("status", "eq", "pending_notification") // Got actual notifications
+      .not("status", "eq", "completed")  // ✅ EXCLUDE: Donor already completed
+      .not("status", "eq", "code_verified"); // ✅ EXCLUDE: Donor already checked in
 
     const campaignIds = (notifiedCampaigns || [])
       .map(dc => dc.fulfillment_requests?.campaign_id)
@@ -653,7 +656,8 @@ const getNearestCampaigns = async (req, res) => {
         )
       `)
       .in("id", campaignIds)
-      .eq("status", "active");
+      .eq("status", "active")  // ✅ Only active campaigns
+      .order("created_at", { ascending: false }); // Sort newest first
 
     // Filter by blood type if needed
     if (bloodType) {

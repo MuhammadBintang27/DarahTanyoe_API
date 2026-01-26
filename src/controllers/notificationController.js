@@ -109,19 +109,28 @@ const markAllAsRead = async (req, res) => {
   }
 };
 
-// Register push token for institution
+// Register push token for institution or user
 const registerPushToken = async (req, res) => {
-  const { institutionId } = req.body;
-  const { token, platform, device_id } = req.body;
+  const { institutionId, userId } = req.body;
+  const { token, platform, device_id, fcm_token } = req.body;
 
-  if (!token || !platform) {
-    return response.sendBadRequest(res, "Token and platform are required");
+  // Support both 'token' and 'fcm_token' parameter names
+  const pushToken = token || fcm_token;
+
+  if (!pushToken || !platform) {
+    return response.sendBadRequest(res, "Token/fcm_token and platform are required");
+  }
+
+  // Must provide either institutionId OR userId
+  if (!institutionId && !userId) {
+    return response.sendBadRequest(res, "Either institutionId or userId is required");
   }
 
   try {
     const result = await notificationService.registerPushToken({
-      institutionId,
-      token,
+      institutionId: institutionId || null,
+      userId: userId || null,
+      token: pushToken,
       platform,
       deviceId: device_id,
     });

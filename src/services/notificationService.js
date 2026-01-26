@@ -43,13 +43,18 @@ class NotificationService {
    */
   async getPushTokens(userId, institutionId = null) {
     try {
+      console.log(`🔍 getPushTokens called: userId=${userId}, institutionId=${institutionId}`);
+      
       let query = supabase.from('push_tokens').select('token, platform, device_id').eq('active', true);
       
       if (userId) {
         query = query.eq('user_id', userId);
+        console.log(`🔍 Querying for user_id: ${userId}`);
       } else if (institutionId) {
         query = query.eq('institution_id', institutionId);
+        console.log(`🔍 Querying for institution_id: ${institutionId}`);
       } else {
+        console.log('🔍 No userId or institutionId provided');
         return [];
       }
 
@@ -60,6 +65,11 @@ class NotificationService {
         return [];
       }
 
+      console.log(`📊 Found ${(data || []).length} push tokens`);
+      if (data && data.length > 0) {
+        console.log(`📊 Tokens: ${JSON.stringify(data)}`);
+      }
+      
       return data || [];
     } catch (error) {
       console.error('❌ Get push tokens error:', error);
@@ -271,6 +281,7 @@ class NotificationService {
         database: true,
         push: null,
         email: null,
+        metadata: notification.metadata,  // ✅ ADD THIS to return metadata
       };
 
       // 2. Send push notification if enabled and user/institution provided
@@ -413,19 +424,26 @@ class NotificationService {
   async registerPushToken(params) {
     try {
       const { institutionId, userId, token, platform, deviceId } = params;
+      
+      console.log(`📝 registerPushToken: userId=${userId}, institutionId=${institutionId}, token=${token.substring(0, 20)}...`);
 
       // Check if token already exists
       const { data: existing } = await supabase
         .from('push_tokens')
-        .select('id')
+        .select('id, user_id, institution_id')
         .eq('token', token)
         .single();
 
       if (existing) {
-        // Update existing token
+        // Update existing token - MUST include user_id and institution_id
+        console.log(`📝 Updating existing token: id=${existing.id}`);
         const { error } = await supabase
           .from('push_tokens')
           .update({
+            user_id: userId,
+            institution_id: institutionId,
+            platform,
+            device_id: deviceId,
             active: true,
             updated_at: new Date().toISOString(),
           })
@@ -433,10 +451,11 @@ class NotificationService {
 
         if (error) throw error;
 
-        console.log('✅ Push token updated');
+        console.log(`✅ Push token updated for ${userId ? 'user' : 'institution'}`);
         return { success: true, action: 'updated' };
       } else {
         // Insert new token
+        console.log(`📝 Inserting new token`);
         const { error } = await supabase.from('push_tokens').insert({
           institution_id: institutionId,
           user_id: userId,
@@ -448,7 +467,7 @@ class NotificationService {
 
         if (error) throw error;
 
-        console.log('✅ Push token registered');
+        console.log(`✅ Push token registered for ${userId ? 'user' : 'institution'}`);
         return { success: true, action: 'created' };
       }
     } catch (error) {

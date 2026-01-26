@@ -21,6 +21,9 @@ fulfillmentRouter.get("/", fulfillmentController.getAllFulfillmentRequests);
 // Verify donor code
 fulfillmentRouter.post("/verify-code", fulfillmentController.verifyDonorCode);
 
+// ✅ NEW: Pre-check/Pre-create confirmation (for "Permintaan Terdekat" flow)
+fulfillmentRouter.get("/donor/pre-check", fulfillmentController.preCheckConfirmation);
+
 // Donor Confirm (Pendonor setuju)
 fulfillmentRouter.post("/donor/confirm", fulfillmentController.donorConfirm);
 
@@ -41,5 +44,8 @@ fulfillmentRouter.patch("/:id/status", fulfillmentController.updateFulfillmentSt
 
 // Get donor confirmations for a fulfillment request
 fulfillmentRouter.get("/:fulfillment_id/confirmations", fulfillmentController.getDonorConfirmations);
+
+// ✅ NEW: Get donor confirmations by donor ID (for donor history/transaction page)
+fulfillmentRouter.get("/donor/:donor_id/confirmations", fulfillmentController.getDonorConfirmationsByDonorId);
 
 export default fulfillmentRouter;

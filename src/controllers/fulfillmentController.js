@@ -399,7 +399,10 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
           message: `Pasien ${fulfillmentRequest.patient_name} membutuhkan donor darah ${fulfillmentRequest.blood_type}. Jarak Anda: ${confirmation.distance_km?.toFixed(1) || '?'} km dari ${pmiData?.institution_name || 'PMI'}.`,
           priority: fulfillmentRequest.urgency_level === 'critical' || fulfillmentRequest.urgency_level === 'high' ? 'high' : 'medium',
           relatedId: campaign_id,
-          relatedType: 'blood_campaign'
+          relatedType: 'blood_campaign',
+          metadata: {
+            confirmationId: confirmation.id  // ✅ ADD THIS
+          }
         });
 
         if (notification && notification.notificationId) {
@@ -618,11 +621,18 @@ const getFulfillmentRequestById = async (req, res) => {
       rejected: data.donor_confirmations?.filter(c => c.status === 'rejected')?.length || 0
     };
 
+    // Calculate fulfillment status (read-only, no modifications)
+    const quantity_collected = data.quantity_collected || 0;
+    const target_quantity = data.quantity_needed || 0;
+    const is_fulfilled = quantity_collected >= target_quantity;
+
     return response.sendSuccess(res, {
       message: "Fulfillment request retrieved successfully",
       data: {
         ...data,
-        confirmation_stats: confirmationStats
+        confirmation_stats: confirmationStats,
+        is_fulfilled: is_fulfilled,
+        can_search_more_donors: !is_fulfilled
       }
     });
   } catch (error) {
@@ -639,6 +649,17 @@ const updateFulfillmentStatus = async (req, res) => {
   const { status, quantity_collected, notes } = req.body;
 
   try {
+    // First get current fulfillment to check campaign_id
+    const { data: fulfillment, error: fetchError } = await supabase
+      .from("fulfillment_requests")
+      .select("*, campaign_id")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !fulfillment) {
+      return response.sendBadRequest(res, "Fulfillment request not found");
+    }
+
     const updateData = { status };
     if (quantity_collected !== undefined) updateData.quantity_collected = quantity_collected;
     if (notes) updateData.notes = notes;
@@ -658,6 +679,11 @@ const updateFulfillmentStatus = async (req, res) => {
 
     if (error) {
       return response.sendBadRequest(res, error.message);
+    }
+
+    // ✅ SYNC: Call helper to sync campaign status
+    if (status === 'fulfilled' || status === 'cancelled') {
+      await syncCampaignStatus(id, status);
     }
 
     return response.sendSuccess(res, {
@@ -710,6 +736,76 @@ const getDonorConfirmations = async (req, res) => {
     });
   } catch (error) {
     console.error("Error getting donor confirmations:", error);
+    return response.sendServerError(res, error.message);
+  }
+};
+
+/**
+ * ✅ NEW: Get donor confirmations by donor ID (for donor history page)
+ * Called from: Transaksi page (donor history view)
+ * Status mapping: 'active' includes confirmed & code_verified (waiting for donation completion)
+ *                 'completed' includes completed, rejected, expired, failed
+ */
+const getDonorConfirmationsByDonorId = async (req, res) => {
+  const { donor_id } = req.params;
+  const { status } = req.query;
+
+  try {
+    if (!donor_id) {
+      return response.sendBadRequest(res, "donor_id is required");
+    }
+
+    console.log(`📋 getDonorConfirmationsByDonorId: donor_id=${donor_id}, status=${status}`);
+
+    let query = supabase
+      .from("donor_confirmations")
+      .select(`
+        *,
+        fulfillment_request:fulfillment_requests(
+          id,
+          campaign_id,
+          patient_name,
+          blood_type,
+          created_at,
+          quantity_needed,
+          quantity_collected,
+          campaign:blood_campaigns!fulfillment_requests_campaign_id_fkey(
+            id,
+            title,
+            location,
+            address,
+            campaign_location,
+            description
+          )
+        )
+      `)
+      .eq("donor_id", donor_id)
+      .order("created_at", { ascending: false });
+
+    // Map status query to actual confirmation statuses
+    if (status === "active") {
+      // Active: confirmed or code_verified (waiting for completion)
+      query = query.in("status", ["confirmed", "code_verified"]);
+    } else if (status === "completed") {
+      // Completed: completed, rejected, expired, failed
+      query = query.in("status", ["completed", "rejected", "expired", "failed"]);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("❌ Database error:", error);
+      return response.sendBadRequest(res, error.message);
+    }
+
+    console.log(`✅ Retrieved ${data?.length || 0} confirmations`);
+
+    return response.sendSuccess(res, {
+      message: "Donor confirmations retrieved successfully",
+      data: data || []
+    });
+  } catch (error) {
+    console.error("❌ Error getting donor confirmations:", error);
     return response.sendServerError(res, error.message);
   }
 };
@@ -771,14 +867,14 @@ const verifyDonorCode = async (req, res) => {
       );
     }
 
-    // Update confirmation
+    // Update confirmation to 'code_verified' status (intermediate state)
     const { data: updated, error: updateError } = await supabase
       .from("donor_confirmations")
       .update({
         code_verified: true,
         code_verified_at: new Date().toISOString(),
         verified_by: pmi_id,
-        status: "confirmed",
+        status: "code_verified",  // ✅ NEW: Intermediate status between confirmed and completed
         confirmed_at: new Date().toISOString(),
         check_in_time: new Date().toISOString()
       })
@@ -799,16 +895,115 @@ const verifyDonorCode = async (req, res) => {
       return response.sendBadRequest(res, updateError.message);
     }
 
+    // ✅ NEW: Check if campaign is now fulfilled based on QUANTITY
+    let campaignFulfilled = false;
+    try {
+      const { data: fulfillmentData } = await supabase
+        .from("fulfillment_requests")
+        .select("quantity_collected, target_quantity, campaign_id")
+        .eq("id", confirmation.fulfillment_request_id)
+        .single();
+
+      if (fulfillmentData) {
+        const { quantity_collected, target_quantity, campaign_id } = fulfillmentData;
+        
+        console.log(`📊 Campaign ${campaign_id}: ${quantity_collected}/${target_quantity} units collected`);
+
+        // Check if quantity target reached
+        if (quantity_collected >= target_quantity) {
+          // ✅ Update campaign to 'completed' AND update current_quantity
+          const { error: campaignError } = await supabase
+            .from("blood_campaigns")
+            .update({ 
+              status: 'completed',
+              current_quantity: quantity_collected,
+              completed_at: new Date().toISOString()
+            })
+            .eq("id", campaign_id);
+
+          if (!campaignError) {
+            console.log(`✅ Campaign ${campaign_id} FULFILLED with ${quantity_collected}/${target_quantity} units!`);
+            campaignFulfilled = true;
+          } else {
+            console.warn(`⚠️ Failed to update campaign status: ${campaignError.message}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`⚠️ Error checking campaign fulfillment: ${error.message}`);
+    }
+
     return response.sendSuccess(res, {
       message: "Code verified successfully",
       data: {
         confirmation: updated,
-        valid: true
+        valid: true,
+        campaignFulfilled: campaignFulfilled
       }
     });
   } catch (error) {
     console.error("Error verifying donor code:", error);
     return response.sendServerError(res, error.message);
+  }
+};
+
+/**
+ * Helper: Sync campaign status with fulfillment status
+ * Updates blood_campaigns based on fulfillment_requests status change
+ */
+const syncCampaignStatus = async (fulfillmentId, newStatus) => {
+  try {
+    // Get fulfillment with campaign_id
+    const { data: fulfillment } = await supabase
+      .from("fulfillment_requests")
+      .select("campaign_id, blood_request_id")
+      .eq("id", fulfillmentId)
+      .single();
+
+    if (!fulfillment) {
+      console.warn(`⚠️ Fulfillment ${fulfillmentId} not found for sync`);
+      return;
+    }
+
+    let campaignId = fulfillment.campaign_id;
+
+    // Fallback: find campaign by blood_request_id
+    if (!campaignId && fulfillment.blood_request_id) {
+      const { data: campaign } = await supabase
+        .from("blood_campaigns")
+        .select("id")
+        .eq("related_request", fulfillment.blood_request_id)
+        .single();
+
+      if (campaign) {
+        campaignId = campaign.id;
+        console.log(`🔍 Found campaign ${campaignId} via related_request fallback`);
+      }
+    }
+
+    // Update campaign status
+    if (campaignId) {
+      const updateData = {};
+
+      if (newStatus === 'fulfilled') {
+        updateData.status = 'completed';
+      } else if (newStatus === 'cancelled') {
+        updateData.status = 'cancelled';
+      }
+
+      const { error } = await supabase
+        .from("blood_campaigns")
+        .update(updateData)
+        .eq("id", campaignId);
+
+      if (error) {
+        console.warn(`⚠️ Failed to sync campaign ${campaignId}: ${error.message}`);
+      } else {
+        console.log(`✅ Campaign ${campaignId} synced to status '${updateData.status || newStatus}'`);
+      }
+    }
+  } catch (error) {
+    console.error(`⚠️ Error in syncCampaignStatus: ${error.message}`);
   }
 };
 
@@ -845,9 +1040,9 @@ const completeDonation = async (req, res) => {
       return response.sendNotFound(res, "Confirmation not found");
     }
 
-    // Check if code is verified
-    if (!confirmation.code_verified) {
-      return response.sendBadRequest(res, "Code must be verified first");
+    // Check if code is verified (must be in 'code_verified' status)
+    if (confirmation.status !== "code_verified") {
+      return response.sendBadRequest(res, `Code must be verified first. Current status: ${confirmation.status}`);
     }
 
     // Check if already completed
@@ -876,11 +1071,11 @@ const completeDonation = async (req, res) => {
       return response.sendBadRequest(res, donationError.message);
     }
 
-    // Update confirmation
+    // Update confirmation to 'completed' status (final state)
     const { data: updated, error: updateError } = await supabase
       .from("donor_confirmations")
       .update({
-        status: "completed",
+        status: "completed",  // ✅ Status berubah dari code_verified → completed
         donation_id: donation.id,
         donation_completed_at: new Date().toISOString(),
         check_out_time: new Date().toISOString()
@@ -900,6 +1095,10 @@ const completeDonation = async (req, res) => {
     const newQuantity = (confirmation.fulfillment.quantity_collected || 0) + quantity;
     const newCompletedDonors = (confirmation.fulfillment.completed_donors || 0) + 1;
     
+    // Check if fulfillment is now complete
+    const isFulfilled = newQuantity >= confirmation.fulfillment.quantity_needed;
+    
+    // Always update quantity and completed_donors
     await supabase
       .from("fulfillment_requests")
       .update({
@@ -908,7 +1107,67 @@ const completeDonation = async (req, res) => {
       })
       .eq("id", confirmation.fulfillment_request_id);
 
-    console.log(`✅ Updated fulfillment: quantity=${newQuantity}, completed_donors=${newCompletedDonors}`);
+    console.log(`📊 Fulfillment #${confirmation.fulfillment_request_id} progress: quantity=${newQuantity}/${confirmation.fulfillment.quantity_needed}`);
+
+    // If fulfilled, update status to 'fulfilled' and sync campaign
+    if (isFulfilled && confirmation.fulfillment.status === 'donors_found') {
+      console.log(`✅ Fulfillment #${confirmation.fulfillment_request_id} is complete! Updating status to 'fulfilled'...`);
+      
+      // Update fulfillment status
+      await supabase
+        .from("fulfillment_requests")
+        .update({
+          status: 'fulfilled',
+          completed_at: new Date().toISOString()
+        })
+        .eq("id", confirmation.fulfillment_request_id);
+
+      // Sync campaign status
+      await syncCampaignStatus(confirmation.fulfillment_request_id, 'fulfilled');
+    }
+
+    // ✅ Also update campaign quantity regardless of status
+    let campaignId = confirmation.fulfillment.campaign_id;
+    
+    // Fallback: if no campaign_id, try to find campaign by blood_request_id
+    if (!campaignId && confirmation.fulfillment.blood_request_id) {
+      const { data: campaign } = await supabase
+        .from("blood_campaigns")
+        .select("id")
+        .eq("related_request", confirmation.fulfillment.blood_request_id)
+        .single();
+      
+      if (campaign) {
+        campaignId = campaign.id;
+        console.log(`🔍 Found campaign ${campaignId} via related_request fallback`);
+      }
+    }
+
+    if (campaignId) {
+      // Use quantity_needed as target (not target_quantity)
+      const fulfillmentTarget = confirmation.fulfillment.quantity_needed || confirmation.fulfillment.target_quantity;
+      
+      const { error: campaignError } = await supabase
+        .from("blood_campaigns")
+        .update({
+          current_quantity: newQuantity,
+          current_donors: newCompletedDonors,
+          status: newQuantity >= fulfillmentTarget ? 'completed' : 'active',
+          completed_at: newQuantity >= fulfillmentTarget ? new Date().toISOString() : null
+        })
+        .eq("id", campaignId);
+
+      if (!campaignError) {
+        const isFulfilled = newQuantity >= fulfillmentTarget;
+        if (isFulfilled) {
+          console.log(`✅ Campaign ${campaignId} FULFILLED! quantity=${newQuantity}/${fulfillmentTarget}. Status changed to 'completed'`);
+        } else {
+          console.log(`📊 Campaign ${campaignId} progress: quantity=${newQuantity}/${fulfillmentTarget}`);
+        }
+      } else {
+        console.warn(`⚠️ Failed to update campaign: ${campaignError.message}`);
+      }
+    }
 
     // Add blood to stock
     const expiryDate = new Date();
@@ -1174,53 +1433,150 @@ const initiateFulfillment = async (req, res) => {
  * Code dihasilkan otomatis oleh trigger database
  */
 const donorConfirm = async (req, res) => {
-  const { confirmation_id, donor_id } = req.body;
+  const { confirmation_id, campaign_id, donor_id } = req.body;
 
   try {
-    if (!confirmation_id || !donor_id) {
-      return response.sendBadRequest(res, "confirmation_id and donor_id are required");
+    // Must have donor_id
+    if (!donor_id) {
+      return response.sendBadRequest(res, "donor_id is required");
     }
 
-    // Get confirmation details
-    const { data: confirmation, error: findError } = await supabase
-      .from("donor_confirmations")
-      .select(`
-        *,
-        fulfillment:fulfillment_requests(*),
-        donor:users!donor_confirmations_donor_id_fkey(
-          id,
-          full_name,
-          phone_number,
-          blood_type
-        )
-      `)
-      .eq("id", confirmation_id)
-      .single();
-
-    if (findError || !confirmation) {
-      return response.sendNotFound(res, "Confirmation not found");
+    // Must have either confirmation_id OR campaign_id
+    if (!confirmation_id && !campaign_id) {
+      return response.sendBadRequest(res, "Either confirmation_id or campaign_id is required");
     }
 
-    // Verify donor owns this confirmation
-    if (confirmation.donor_id !== donor_id) {
-      return response.sendBadRequest(res, "Unauthorized - You are not the donor for this confirmation");
-    }
+    let confirmation;
 
-    // Check if already confirmed
-    if (confirmation.status !== 'pending') {
-      return response.sendBadRequest(res, `Confirmation is already ${confirmation.status}`);
-    }
-
-    // Check if code is expired
-    const now = new Date();
-    const expiresAt = new Date(confirmation.code_expires_at);
-    if (now > expiresAt) {
-      await supabase
+    // Case 1: User coming from NOTIFICATION - has confirmation_id
+    if (confirmation_id) {
+      const { data: foundConfirmation, error: findError } = await supabase
         .from("donor_confirmations")
-        .update({ status: "expired" })
-        .eq("id", confirmation_id);
+        .select(`
+          *,
+          fulfillment:fulfillment_requests(*),
+          donor:users!donor_confirmations_donor_id_fkey(
+            id,
+            full_name,
+            phone_number,
+            blood_type
+          )
+        `)
+        .eq("id", confirmation_id)
+        .single();
 
-      return response.sendBadRequest(res, "Confirmation expired - Please wait for a new notification");
+      if (findError || !foundConfirmation) {
+        return response.sendNotFound(res, "Confirmation not found");
+      }
+
+      // Verify donor owns this confirmation
+      if (foundConfirmation.donor_id !== donor_id) {
+        return response.sendBadRequest(res, "Unauthorized - You are not the donor for this confirmation");
+      }
+
+      // Check if already confirmed
+      if (foundConfirmation.status !== 'pending') {
+        return response.sendBadRequest(res, `Confirmation is already ${foundConfirmation.status}`);
+      }
+
+      confirmation = foundConfirmation;
+    } else {
+      // Case 2: User coming from "PERMINTAAN TERDEKAT" (direct access) - has campaign_id
+      // Need to find or create confirmation for this campaign + donor
+      
+      console.log("🔍 [DEBUG] Looking for campaign with ID:", campaign_id);
+      
+      // First, get the fulfillment request from campaign
+      // NOTE: fulfillment_requests has campaign_id, NOT the other way around
+      const { data: fulfillment, error: fulfillError } = await supabase
+        .from("fulfillment_requests")
+        .select(`
+          id,
+          blood_request_id,
+          pmi_id,
+          patient_name,
+          blood_type,
+          quantity_needed,
+          urgency_level
+        `)
+        .eq("campaign_id", campaign_id)
+        .single();
+
+      console.log("🔍 [DEBUG] Fulfillment lookup result:", { fulfillment, fulfillError });
+      
+      // If not found, try to get list to see what fulfillments exist
+      if (!fulfillment) {
+        const { data: allFulfillments } = await supabase
+          .from("fulfillment_requests")
+          .select("id, campaign_id, patient_name")
+          .limit(5);
+        console.log("❌ [DEBUG] Fulfillment not found. Sample fulfillments in DB:", allFulfillments);
+      }
+
+      if (fulfillError || !fulfillment) {
+        console.log("❌ [DEBUG] Fulfillment not found - fulfillError:", fulfillError);
+        return response.sendBadRequest(res, `Fulfillment request not found for campaign ID: ${campaign_id}`);
+      }
+
+      const fulfillment_request_id = fulfillment.id;
+      console.log("✅ [DEBUG] Fulfillment found - ID:", fulfillment_request_id);
+
+      // Check if confirmation already exists for this donor + fulfillment
+      const { data: existingConfirmation } = await supabase
+        .from("donor_confirmations")
+        .select(`
+          *,
+          fulfillment:fulfillment_requests(*),
+          donor:users!donor_confirmations_donor_id_fkey(
+            id,
+            full_name,
+            phone_number,
+            blood_type
+          )
+        `)
+        .eq("fulfillment_request_id", fulfillment_request_id)
+        .eq("donor_id", donor_id)
+        .single();
+
+      if (existingConfirmation && !existingConfirmation.error) {
+        console.log("✅ [DEBUG] Found existing confirmation:", existingConfirmation);
+        confirmation = existingConfirmation;
+        
+        // If already confirmed, just return the existing code
+        if (confirmation.status === 'confirmed') {
+          return response.sendSuccess(res, {
+            message: "You have already confirmed. Your unique code is ready.",
+            data: {
+              confirmationId: confirmation.id,
+              donorName: confirmation.donor.full_name,
+              bloodType: confirmation.donor.blood_type,
+              uniqueCode: confirmation.unique_code,
+              codeGeneratedAt: confirmation.code_generated_at,
+              codeExpiresAt: confirmation.code_expires_at,
+              instructions: "Silakan datang ke PMI dengan kode unik ini untuk verifikasi dan donasi."
+            }
+          });
+        }
+      } else {
+        // ❌ NO CREATE - Confirmation MUST exist from pre-check
+        console.log("❌ [DEBUG] No confirmation found. Must call pre-check endpoint first.");
+        return response.sendBadRequest(res, 
+          "Confirmation not found. Please refresh the page or call pre-check endpoint first.");
+      }
+    }
+
+    // Check if code is expired (for existing confirmations)
+    if (confirmation && confirmation.code_expires_at) {
+      const now = new Date();
+      const expiresAt = new Date(confirmation.code_expires_at);
+      if (now > expiresAt) {
+        await supabase
+          .from("donor_confirmations")
+          .update({ status: "expired" })
+          .eq("id", confirmation.id);
+
+        return response.sendBadRequest(res, "Confirmation expired - Please wait for a new notification");
+      }
     }
 
     // Update confirmation to 'confirmed' - trigger akan auto-generate code
@@ -1230,7 +1586,7 @@ const donorConfirm = async (req, res) => {
         status: "confirmed"
         // unique_code dan code_generated_at akan di-set oleh trigger
       })
-      .eq("id", confirmation_id)
+      .eq("id", confirmation.id)
       .select(`
         *,
         fulfillment:fulfillment_requests(*),
@@ -1333,6 +1689,93 @@ const donorReject = async (req, res) => {
   }
 };
 
+/**
+ * Pre-check/Pre-create Confirmation
+ * Called when user opens DetailPermintaanDarah from "Permintaan Terdekat"
+ * Creates confirmation with 'pending_notification' status BEFORE form submit
+ */
+const preCheckConfirmation = async (req, res) => {
+  const { campaign_id, donor_id } = req.query;
+
+  try {
+    // Validate required params
+    if (!campaign_id || !donor_id) {
+      return response.sendBadRequest(res, "campaign_id and donor_id are required");
+    }
+
+    console.log("🔍 [DEBUG] Pre-check called for:", { campaign_id, donor_id });
+
+    // Get fulfillment from campaign
+    const { data: fulfillment, error: fulfillError } = await supabase
+      .from("fulfillment_requests")
+      .select("id, blood_type, quantity_needed, urgency_level")
+      .eq("campaign_id", campaign_id)
+      .single();
+
+    if (fulfillError || !fulfillment) {
+      console.log("❌ [DEBUG] Campaign/fulfillment not found");
+      return response.sendBadRequest(res, "Campaign not found");
+    }
+
+    console.log("✅ [DEBUG] Fulfillment found:", fulfillment.id);
+
+    // Check if confirmation already exists
+    const { data: existingConfirmation } = await supabase
+      .from("donor_confirmations")
+      .select("id, status")
+      .eq("fulfillment_request_id", fulfillment.id)
+      .eq("donor_id", donor_id)
+      .single();
+
+    // If already exists, return the ID
+    if (existingConfirmation && !existingConfirmation.error) {
+      console.log("✅ [DEBUG] Confirmation already exists:", existingConfirmation.id);
+      return response.sendSuccess(res, {
+        message: "Confirmation already exists",
+        data: {
+          confirmationId: existingConfirmation.id,
+          isNew: false
+        }
+      });
+    }
+
+    // Create NEW confirmation with 'pending_notification' status
+    console.log("🔍 [DEBUG] Creating new confirmation with status 'pending_notification'");
+
+    const { data: newConfirmation, error: createError } = await supabase
+      .from("donor_confirmations")
+      .insert({
+        fulfillment_request_id: fulfillment.id,
+        donor_id: donor_id,
+        status: 'pending_notification',  // ✅ STATUS: pending_notification (pre-created)
+        notification_id: null,
+        notified_at: null,
+        distance_km: null  // Will be set if needed later
+      })
+      .select("id")
+      .single();
+
+    if (createError) {
+      console.error("❌ [DEBUG] Error creating confirmation:", createError);
+      return response.sendBadRequest(res, "Failed to create confirmation");
+    }
+
+    console.log("✅ [DEBUG] New confirmation created:", newConfirmation.id);
+
+    return response.sendSuccess(res, {
+      message: "Confirmation prepared successfully",
+      data: {
+        confirmationId: newConfirmation.id,
+        isNew: true
+      }
+    });
+
+  } catch (error) {
+    console.error("Error in preCheckConfirmation:", error);
+    return response.sendServerError(res, error.message);
+  }
+};
+
 export default {
   searchAndCreateCampaign,
   searchEligibleDonorsForFulfillment,
@@ -1342,9 +1785,11 @@ export default {
   getFulfillmentRequestById,
   updateFulfillmentStatus,
   getDonorConfirmations,
+  getDonorConfirmationsByDonorId,  // ✅ NEW: Get confirmations by donor ID
   verifyDonorCode,
   completeDonation,
   initiateFulfillment,
   donorConfirm,
-  donorReject
+  donorReject,
+  preCheckConfirmation
 };
