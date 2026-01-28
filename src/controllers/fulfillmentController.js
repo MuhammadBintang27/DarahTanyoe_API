@@ -81,25 +81,6 @@ const searchAndCreateCampaign = async (req, res) => {
       return response.sendBadRequest(res, fulfillmentError.message);
     }
 
-    // Find eligible donors using the scoring function
-    const { data: eligibleDonors, error: donorError } = await supabase
-      .rpc('find_eligible_donors_simplified', {
-        p_blood_type: blood_type,
-        p_pmi_location: pmiData.location,
-        p_radius_km: search_radius_km,
-        p_urgency_level: urgency_level,
-        p_min_score: 40.0,
-        p_limit: target_donors || 100
-      });
-
-    if (donorError) {
-      console.error("Error finding eligible donors:", donorError);
-      // Continue even if donor search fails
-    }
-
-    const donorsFound = eligibleDonors?.length || 0;
-    console.log(`🎯 Found ${donorsFound} eligible donors`);
-
     // ✅ Create blood_campaign record for fulfillment (type='fulfillment')
     console.log("📋 Creating blood_campaign record for fulfillment...");
     
@@ -111,7 +92,7 @@ const searchAndCreateCampaign = async (req, res) => {
       start_date: new Date().toISOString(),
       end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       target_quantity: quantity_needed,
-      target_donors: donorsFound > 0 ? donorsFound : target_donors || 50,
+      target_donors: target_donors || 50,
       location: pmiData.institution_name,
       address: pmiData.address || "PMI Location",
       campaign_location: pmiData.location,
@@ -136,40 +117,13 @@ const searchAndCreateCampaign = async (req, res) => {
     const campaignId = newCampaign.id;
     console.log("✅ Campaign created:", campaignId);
 
-    // Update fulfillment request with campaign link
+    // Update fulfillment request with campaign link - keep status as 'initiated' until user clicks "Cari Pendonor"
     await supabase
       .from("fulfillment_requests")
       .update({
-        status: donorsFound > 0 ? 'donors_found' : 'failed',
-        target_donors: donorsFound,
         campaign_id: campaignId
       })
       .eq("id", fulfillmentRequest.id);
-
-    // Create donor confirmations BUT DON'T NOTIFY YET
-    if (eligibleDonors && eligibleDonors.length > 0) {
-      console.log(`📝 Creating ${eligibleDonors.length} donor confirmations (not notified yet)...`);
-      
-      const confirmations = eligibleDonors.map(donor => ({
-        fulfillment_request_id: fulfillmentRequest.id,
-        campaign_id: campaignId,
-        donor_id: donor.donor_id, // RPC returns 'donor_id'
-        status: 'pending_notification', // ✅ NEW: distinct from 'pending' (which means notified)
-        distance_km: donor.distance_km, // ✅ RPC returns 'distance_km'
-        code_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-      }));
-
-      const { data: createdConfirmations, error: confirmationError } = await supabase
-        .from("donor_confirmations")
-        .insert(confirmations)
-        .select();
-
-      if (confirmationError) {
-        console.error("❌ Error creating donor confirmations:", confirmationError);
-      } else {
-        console.log(`✅ Created ${createdConfirmations?.length || 0} donor confirmations (pending notification)`);
-      }
-    }
 
     // Update blood_request status to in_fulfillment
     await supabase
@@ -181,8 +135,6 @@ const searchAndCreateCampaign = async (req, res) => {
     return response.sendSuccess(res, {
       fulfillment_id: fulfillmentRequest.id,
       campaign_id: campaignId,
-      eligible_donors_count: donorsFound,
-      eligible_donors: eligibleDonors || [],
       pmi_info: {
         id: pmiData.id,
         institution_name: pmiData.institution_name,
@@ -191,7 +143,7 @@ const searchAndCreateCampaign = async (req, res) => {
       patient_name,
       blood_type,
       quantity_needed,
-      message: `Ditemukan ${donorsFound} donor potensial. Pilih jumlah yang akan dikirim notifikasi.`
+      message: `Kampanye berhasil dibuat. Silakan klik "Cari Pendonor" untuk mencari donor potensial.`
     });
 
   } catch (error) {
@@ -229,12 +181,47 @@ const searchEligibleDonorsForFulfillment = async (req, res) => {
       .eq("status", "pending_notification");
 
     if (existingPendingDonors && existingPendingDonors.length > 0) {
-      // Already searched, just return existing pending donors
+      // Already searched, but need to get donor details with names
       console.log(`📋 Found ${existingPendingDonors.length} existing pending notification donors`);
+      
+      const donorIds = existingPendingDonors.map(d => d.donor_id);
+      console.log('🔍 Fetching donor details for existing pending donors:', donorIds);
+      
+      const { data: donorDetails, error: detailsError } = await supabase
+        .from('users')
+        .select('id, full_name, phone_number, blood_type')
+        .in('id', donorIds);
+      
+      // Also fetch distance_km from donor_confirmations
+      const { data: confirmationDistances } = await supabase
+        .from('donor_confirmations')
+        .select('donor_id, distance_km')
+        .eq('fulfillment_request_id', fulfillment_id)
+        .eq('status', 'pending_notification');
+
+      console.log('📋 Donor details fetched:', donorDetails);
+      console.log('❌ Donor details error:', detailsError);
+
+      let donorsWithDetails = existingPendingDonors;
+      if (!detailsError && donorDetails) {
+        donorsWithDetails = existingPendingDonors.map(existing => {
+          const donorDetail = donorDetails.find(d => d.id === existing.donor_id);
+          const distanceData = confirmationDistances?.find(d => d.donor_id === existing.donor_id);
+          return {
+            ...existing,
+            full_name: donorDetail?.full_name || 'Unknown',
+            phone_number: donorDetail?.phone_number,
+            blood_type: donorDetail?.blood_type,
+            distance_km: distanceData?.distance_km
+          };
+        });
+      }
+      
+      console.log('✅ Returning existing pending donors with names and distances:', donorsWithDetails);
       return response.sendSuccess(res, {
-        eligible_donors_count: existingPendingDonors.length,
-        eligible_donors: existingPendingDonors,
-        message: `Sudah ditemukan ${existingPendingDonors.length} donor potensial sebelumnya`
+        eligible_donors_count: donorsWithDetails.length,
+        eligible_donors: donorsWithDetails,
+        message: `Sudah ditemukan ${donorsWithDetails.length} donor potensial sebelumnya`
       });
     }
 
@@ -275,9 +262,49 @@ const searchEligibleDonorsForFulfillment = async (req, res) => {
     }
 
     // Filter out donors that are already in confirmations
-    const eligibleDonors = (allEligibleDonors || []).filter(
+    const eligibleDonorsFiltered = (allEligibleDonors || []).filter(
       donor => !alreadyNotifiedDonorIds.includes(donor.donor_id) // RPC returns 'donor_id'
     );
+
+    // Get full donor details with names for frontend display
+    let eligibleDonors = [];
+    if (eligibleDonorsFiltered && eligibleDonorsFiltered.length > 0) {
+      const donorIds = eligibleDonorsFiltered.map(d => d.donor_id);
+      
+      console.log('🔍 Fetching donor details for IDs:', donorIds);
+      
+      const { data: donorDetails, error: detailsError } = await supabase
+        .from('users')
+        .select('id, full_name, phone_number, blood_type')
+        .in('id', donorIds);
+
+      console.log('📋 Donor details fetched:', donorDetails);
+      console.log('❌ Donor details error:', detailsError);
+
+      if (detailsError) {
+        console.error('Error fetching donor details:', detailsError);
+        // Fallback to basic data without names
+        eligibleDonors = eligibleDonorsFiltered;
+      } else {
+        // Merge eligible donor data with full names
+        eligibleDonors = eligibleDonorsFiltered.map(eligible => {
+          console.log(`🔍 RPC data for ${eligible.donor_id}:`, eligible);
+          const donorDetail = donorDetails.find(d => d.id === eligible.donor_id);
+          const merged = {
+            ...eligible,
+            full_name: donorDetail?.full_name || 'Unknown',
+            phone_number: donorDetail?.phone_number,
+            blood_type: donorDetail?.blood_type || eligible.blood_type
+          };
+          console.log(`✅ Merged donor ${eligible.donor_id}:`, merged);
+          return merged;
+        });
+      }
+    } else {
+      eligibleDonors = eligibleDonorsFiltered;
+    }
+    
+    console.log('📊 Final eligible donors with details:', eligibleDonors);
 
     const donorsFound = eligibleDonors.length;
     console.log(`🎯 Found ${donorsFound} NEW eligible donors (after excluding ${alreadyNotifiedDonorIds.length} already notified)`);

@@ -526,6 +526,9 @@ BEGIN
             AND u.phone_verified = true
             AND u.location IS NOT NULL
             AND ST_DWithin(u.location, p_pmi_location, p_radius_km * 1000)
+            -- ✅ Check notifications enabled
+            AND u.notifications_enabled = true
+            -- Check 90-day post-donation period
             AND (
                 u.last_donation_date IS NULL 
                 OR u.last_donation_date < (CURRENT_DATE - INTERVAL '90 days')

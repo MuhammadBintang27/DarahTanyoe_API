@@ -9,5 +9,6 @@ userRouter.post("/masuk-web", userController.signInWithWeb);
 userRouter.post("/verifyOTP", userController.verifyOTP);
 userRouter.post("/send-notification", userController.sendNotification);
 userRouter.get("/poin/:userId", userController.getUserPoints);
+userRouter.patch("/update/:id", userController.updateUserProfile);
 
 export default userRouter;

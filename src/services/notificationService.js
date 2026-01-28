@@ -40,10 +40,45 @@ class NotificationService {
 
   /**
    * Get active push tokens for user or institution
+   * IMPORTANT: Also validates notifications_enabled for users
    */
   async getPushTokens(userId, institutionId = null) {
     try {
       console.log(`🔍 getPushTokens called: userId=${userId}, institutionId=${institutionId}`);
+      
+      // If user_id provided, check notifications_enabled first
+      if (userId) {
+        const { data: user, error: userError } = await supabase
+          .from('users')
+          .select('notifications_enabled, last_donation_date')
+          .eq('id', userId)
+          .single();
+
+        if (userError || !user) {
+          console.log(`⚠️  User not found or error fetching user: ${userId}`);
+          return [];
+        }
+
+        // Check if notifications disabled
+        if (user.notifications_enabled === false) {
+          console.log(`🚫 User ${userId} has notifications disabled`);
+          return [];
+        }
+
+        // Check if user is within 3-month post-donation period
+        if (user.last_donation_date) {
+          const lastDonation = new Date(user.last_donation_date);
+          const nextEligible = new Date(lastDonation.getTime() + 90 * 24 * 60 * 60 * 1000);
+          const today = new Date();
+
+          if (nextEligible > today) {
+            console.log(`⏸️  User ${userId} is within 3-month post-donation period`);
+            return [];
+          }
+        }
+
+        console.log(`✅ User ${userId} is eligible to receive notifications`);
+      }
       
       let query = supabase.from('push_tokens').select('token, platform, device_id').eq('active', true);
       

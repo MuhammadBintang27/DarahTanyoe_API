@@ -396,6 +396,91 @@ const sendNotification = async (req, res) => {
   }
 };
 
+const updateUserProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      email,
+      phone_number,
+      address,
+      latitude,
+      longitude,
+      health_notes,
+      notifications_enabled,
+    } = req.body;
+
+    console.log("🔍 DEBUG updateUserProfile - User ID:", id);
+    console.log("🔍 DEBUG updateUserProfile - Request body:", req.body);
+
+    // Validasi minimal - minimal ada satu field yang diupdate
+    if (!email && !phone_number && !address && !health_notes && 
+        (latitude === undefined && longitude === undefined) &&
+        notifications_enabled === undefined) {
+      return response.sendBadRequest(res, "At least one field must be provided for update");
+    }
+
+    // Check if user exists
+    const { data: existingUser, error: fetchError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (fetchError || !existingUser) {
+      console.error("Error fetching user:", fetchError);
+      return response.sendNotFound(res, "User not found");
+    }
+
+    // Prepare update data
+    const updateData = {};
+
+    // Update fields if provided
+    if (email) updateData.email = email;
+    if (phone_number) updateData.phone_number = phone_number;
+    if (address) updateData.address = address;
+    if (health_notes !== undefined) updateData.health_notes = health_notes;
+    if (notifications_enabled !== undefined) updateData.notifications_enabled = notifications_enabled;
+
+    // Handle location conversion (lat/lng to EWKB)
+    if (latitude !== undefined && longitude !== undefined) {
+      updateData.location = `SRID=4326;POINT(${longitude} ${latitude})`;
+      console.log("🔍 DEBUG updateUserProfile - Location EWKB:", updateData.location);
+    }
+
+    // Add updated_at timestamp
+    updateData.updated_at = new Date().toISOString();
+
+    console.log("🔍 DEBUG updateUserProfile - Update data to save:", updateData);
+
+    // Update user profile
+    const { data: updatedUser, error: updateError } = await supabase
+      .from("users")
+      .update(updateData)
+      .eq("id", id)
+      .select("*");
+
+    if (updateError) {
+      console.error("Error updating user profile:", updateError);
+      return response.sendInternalError(res, updateError.message);
+    }
+
+    console.log("✅ User profile updated successfully:", updatedUser);
+    const userToReturn = updatedUser[0];
+    console.log("🔍 DEBUG - User ID:", userToReturn?.id);
+    console.log("🔍 DEBUG - notifications_enabled in response:", userToReturn?.notifications_enabled);
+    console.log("🔍 DEBUG - User fields count:", Object.keys(userToReturn || {}).length);
+    console.log("🔍 DEBUG - All user fields:", Object.keys(userToReturn || {}));
+
+    return response.sendSuccess(res, {
+      message: "User profile updated successfully",
+      user: userToReturn,
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+    return response.sendInternalError(res, "An unexpected error occurred");
+  }
+};
+
 export default {
   signInWithPhone,
   verifyOTP,
@@ -403,4 +488,5 @@ export default {
   signInWithWeb,
   getUserPoints,
   sendNotification,
+  updateUserProfile,
 };

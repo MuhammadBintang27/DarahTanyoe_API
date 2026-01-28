@@ -1,1362 +1,1359 @@
--- DarahTanyoe Complete Database Schema
--- Separated: Institutions (RS/PMI) and Users (Donors)
+    -- DarahTanyoe Complete Database Schema
+    -- Separated: Institutions (RS/PMI) and Users (Donors)
 
--- Enable extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "postgis";
+    -- Enable extensions
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS "postgis";
 
--- ========================================
--- DROP EXISTING TYPES (IF ANY)
--- ========================================
+    -- ========================================
+    -- DROP EXISTING TYPES (IF ANY)
+    -- ========================================
 
-DROP TYPE IF EXISTS confirmation_status CASCADE;
-DROP TYPE IF EXISTS fulfillment_status CASCADE;
-DROP TYPE IF EXISTS notification_type CASCADE;
-DROP TYPE IF EXISTS priority_level CASCADE;
-DROP TYPE IF EXISTS campaign_status CASCADE;
-DROP TYPE IF EXISTS request_status CASCADE;
-DROP TYPE IF EXISTS stock_status CASCADE;
-DROP TYPE IF EXISTS pickup_status CASCADE;
-DROP TYPE IF EXISTS donation_status CASCADE;
-DROP TYPE IF EXISTS institution_type CASCADE;
-DROP TYPE IF EXISTS blood_type CASCADE;
+    DROP TYPE IF EXISTS confirmation_status CASCADE;
+    DROP TYPE IF EXISTS fulfillment_status CASCADE;
+    DROP TYPE IF EXISTS notification_type CASCADE;
+    DROP TYPE IF EXISTS priority_level CASCADE;
+    DROP TYPE IF EXISTS campaign_status CASCADE;
+    DROP TYPE IF EXISTS request_status CASCADE;
+    DROP TYPE IF EXISTS stock_status CASCADE;
+    DROP TYPE IF EXISTS pickup_status CASCADE;
+    DROP TYPE IF EXISTS donation_status CASCADE;
+    DROP TYPE IF EXISTS institution_type CASCADE;
+    DROP TYPE IF EXISTS blood_type CASCADE;
 
--- ========================================
--- CREATE ENUMS
--- ========================================
+    -- ========================================
+    -- CREATE ENUMS
+    -- ========================================
 
--- Blood Type Enum
-CREATE TYPE blood_type AS ENUM (
-  'A+', 'A-', 'B+', 'B-', 
-  'AB+', 'AB-', 'O+', 'O-'
-);
+    -- Blood Type Enum
+    CREATE TYPE blood_type AS ENUM (
+    'A+', 'A-', 'B+', 'B-', 
+    'AB+', 'AB-', 'O+', 'O-'
+    );
 
--- Institution Type Enum (RS/PMI only)
-CREATE TYPE institution_type AS ENUM ('hospital', 'pmi');
+    -- Institution Type Enum (RS/PMI only)
+    CREATE TYPE institution_type AS ENUM ('hospital', 'pmi');
 
--- Donation Status Enum
-CREATE TYPE donation_status AS ENUM ('pending', 'approved', 'rejected', 'completed', 'cancelled');
+    -- Donation Status Enum
+    CREATE TYPE donation_status AS ENUM ('pending', 'approved', 'rejected', 'completed', 'cancelled');
 
--- Pickup Status Enum
-CREATE TYPE pickup_status AS ENUM ('pending', 'scheduled', 'in_progress', 'completed', 'cancelled');
+    -- Pickup Status Enum
+    CREATE TYPE pickup_status AS ENUM ('pending', 'scheduled', 'in_progress', 'completed', 'cancelled');
 
--- Stock Status Enum
-CREATE TYPE stock_status AS ENUM ('available', 'reserved', 'used', 'expired');
+    -- Stock Status Enum
+    CREATE TYPE stock_status AS ENUM ('available', 'reserved', 'used', 'expired');
 
--- Request Status Enum
-CREATE TYPE request_status AS ENUM (
-  'pending',
-  'approved',
-  'in_fulfillment',
-  'pickup_scheduled',
-  'rejected',
-  'ready',
-  'confirmed',
-  'completed',
-  'cancelled'
-);
+    -- Request Status Enum
+    CREATE TYPE request_status AS ENUM (
+    'pending',
+    'approved',
+    'in_fulfillment',
+    'pickup_scheduled',
+    'rejected',
+    'ready',
+    'confirmed',
+    'completed',
+    'cancelled'
+    );
 
--- Campaign Status Enum
-CREATE TYPE campaign_status AS ENUM ('draft', 'active', 'completed', 'cancelled');
+    -- Campaign Status Enum
+    CREATE TYPE campaign_status AS ENUM ('draft', 'active', 'completed', 'cancelled');
 
--- Notification Type Enum
-CREATE TYPE notification_type AS ENUM ('donation', 'pickup', 'stock', 'campaign', 'request', 'system');
+    -- Notification Type Enum
+    CREATE TYPE notification_type AS ENUM ('donation', 'pickup', 'stock', 'campaign', 'request', 'system');
 
--- Priority Level Enum
-CREATE TYPE priority_level AS ENUM ('low', 'medium', 'high', 'critical');
+    -- Priority Level Enum
+    CREATE TYPE priority_level AS ENUM ('low', 'medium', 'high', 'critical');
 
--- Fulfillment Status Enum
-CREATE TYPE fulfillment_status AS ENUM (
-  'initiated',
-  'searching_donors',
-  'donors_found',
-  'in_progress',
-  'partially_fulfilled',
-  'fulfilled',
-  'failed',
-  'cancelled'
-);
+    -- Fulfillment Status Enum
+    CREATE TYPE fulfillment_status AS ENUM (
+    'initiated',
+    'searching_donors',
+    'donors_found',
+    'in_progress',
+    'partially_fulfilled',
+    'fulfilled',
+    'failed',
+    'cancelled'
+    );
 
--- Donor Confirmation Status Enum
-CREATE TYPE confirmation_status AS ENUM (
-    'pending_notification', -- ✅ NEW: Created in DB, waiting to send notification
-  'pending',        -- Menunggu pendonor confirm via notifikasi
-  'confirmed',      -- Pendonor confirm, code sudah di-generate
-  'code_verified',  -- PMI verify code, pendonor di-verifikasi
-  'completed',      -- Donasi selesai
-  'rejected',       -- Pendonor reject
-  'expired',        -- Code expired
-  'failed'          -- Donasi gagal
-);
+    -- Donor Confirmation Status Enum
+    CREATE TYPE confirmation_status AS ENUM (
+        'pending_notification', -- ✅ NEW: Created in DB, waiting to send notification
+    'pending',        -- Menunggu pendonor confirm via notifikasi
+    'confirmed',      -- Pendonor confirm, code sudah di-generate
+    'code_verified',  -- PMI verify code, pendonor di-verifikasi
+    'completed',      -- Donasi selesai
+    'rejected',       -- Pendonor reject
+    'expired',        -- Code expired
+    'failed'          -- Donasi gagal
+    );
 
--- ========================================
--- DROP EXISTING TABLES (IF ANY)
--- ========================================
+    -- ========================================
+    -- DROP EXISTING TABLES (IF ANY)
+    -- ========================================
 
-DROP TABLE IF EXISTS audit_logs CASCADE;
-DROP TABLE IF EXISTS monthly_reports CASCADE;
-DROP TABLE IF EXISTS system_settings CASCADE;
-DROP TABLE IF EXISTS otp_sessions CASCADE;
-DROP TABLE IF EXISTS refresh_tokens CASCADE;
-DROP TABLE IF EXISTS push_tokens CASCADE;
-DROP TABLE IF EXISTS notifications CASCADE;
-DROP TABLE IF EXISTS donor_confirmations CASCADE;
-DROP TABLE IF EXISTS fulfillment_requests CASCADE;
-DROP TABLE IF EXISTS campaign_registrations CASCADE;
-DROP TABLE IF EXISTS blood_campaigns CASCADE;
-DROP TABLE IF EXISTS pickup_requests CASCADE;
-DROP TABLE IF EXISTS blood_requests CASCADE;
-DROP TABLE IF EXISTS stock_ledger CASCADE;
-DROP TABLE IF EXISTS blood_stock_history CASCADE;
-DROP TABLE IF EXISTS blood_stock CASCADE;
-DROP TABLE IF EXISTS donations CASCADE;
-DROP TABLE IF EXISTS otp_records CASCADE;
-DROP TABLE IF EXISTS institutions CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
+    DROP TABLE IF EXISTS audit_logs CASCADE;
+    DROP TABLE IF EXISTS monthly_reports CASCADE;
+    DROP TABLE IF EXISTS system_settings CASCADE;
+    DROP TABLE IF EXISTS otp_sessions CASCADE;
+    DROP TABLE IF EXISTS refresh_tokens CASCADE;
+    DROP TABLE IF EXISTS push_tokens CASCADE;
+    DROP TABLE IF EXISTS notifications CASCADE;
+    DROP TABLE IF EXISTS donor_confirmations CASCADE;
+    DROP TABLE IF EXISTS fulfillment_requests CASCADE;
+    DROP TABLE IF EXISTS campaign_registrations CASCADE;
+    DROP TABLE IF EXISTS blood_campaigns CASCADE;
+    DROP TABLE IF EXISTS pickup_requests CASCADE;
+    DROP TABLE IF EXISTS blood_requests CASCADE;
+    DROP TABLE IF EXISTS stock_ledger CASCADE;
+    DROP TABLE IF EXISTS blood_stock_history CASCADE;
+    DROP TABLE IF EXISTS blood_stock CASCADE;
+    DROP TABLE IF EXISTS donations CASCADE;
+    DROP TABLE IF EXISTS otp_records CASCADE;
+    DROP TABLE IF EXISTS institutions CASCADE;
+    DROP TABLE IF EXISTS users CASCADE;
 
--- ========================================
--- CORE TABLES
--- ========================================
+    -- ========================================
+    -- CORE TABLES
+    -- ========================================
 
--- Users Table (Pendonor only - login via OTP WhatsApp)
-CREATE TABLE users (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  email VARCHAR(255) UNIQUE,
-  phone_number VARCHAR(20) UNIQUE NOT NULL,
-  full_name VARCHAR(100) NOT NULL,
-  address TEXT NOT NULL,
-  location GEOGRAPHY(POINT, 4326),
-  date_of_birth DATE NOT NULL,
-  blood_type blood_type NOT NULL,
-  last_donation_date DATE,
-  health_notes TEXT,
-  total_points INTEGER DEFAULT 0,
-  profile_picture TEXT,
-  active BOOLEAN DEFAULT true,
-  phone_verified BOOLEAN DEFAULT false,
-  last_login TIMESTAMPTZ,
-  
-  -- Campaign statistics (auto-updated)
-  total_campaigns_registered INTEGER DEFAULT 0,
-  total_campaigns_completed INTEGER DEFAULT 0,
-  total_campaigns_cancelled INTEGER DEFAULT 0,
-  completion_rate NUMERIC(5,2) GENERATED ALWAYS AS (
-    CASE 
-      WHEN total_campaigns_registered > 0 
-      THEN ROUND((total_campaigns_completed::NUMERIC / total_campaigns_registered * 100), 2)
-      ELSE NULL 
-    END
-  ) STORED,
-  
-  -- Donation statistics (auto-updated)
-  total_donations INTEGER DEFAULT 0,
-  total_rejections INTEGER DEFAULT 0,
-  last_rejection_date DATE,
-  last_rejection_reason TEXT,
-  
-  -- Response time metrics
-  avg_response_minutes INTEGER,
-  
-  -- Preferred donation schedule
-  preferred_donation_time VARCHAR(20) CHECK (
-    preferred_donation_time IS NULL OR
-    preferred_donation_time IN ('morning', 'afternoon', 'evening', 'flexible')
-  ) DEFAULT 'flexible',
-  availability_days JSONB DEFAULT '["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]'::jsonb,
-  
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Institutions Table (RS/PMI - login via email+password)
-CREATE TABLE institutions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  institution_type institution_type NOT NULL,
-  email VARCHAR(255) UNIQUE NOT NULL,
-  password VARCHAR(255) NOT NULL,
-  institution_name VARCHAR(255) NOT NULL,
-  address TEXT NOT NULL,
-  location GEOGRAPHY(POINT, 4326),
-  phone_number VARCHAR(20),
-  kota VARCHAR(100),
-  provinsi VARCHAR(100),
-  license_number VARCHAR(100),
-  verified BOOLEAN DEFAULT false,
-  operating_hours JSONB,
-  facilities JSONB,
-  capacity INTEGER DEFAULT 0,
-  coverage_area JSONB,
-  description TEXT,
-  website_url TEXT,
-  social_media JSONB,
-  accreditation JSONB,
-  active BOOLEAN DEFAULT true,
-  last_login TIMESTAMPTZ,
-  notification_email VARCHAR(255),
-  email_notifications BOOLEAN DEFAULT true,
-  push_notifications BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- OTP Records Table (for WhatsApp OTP authentication - Donors only)
-CREATE TABLE otp_records (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  phone VARCHAR(20) NOT NULL,
-  otp VARCHAR(10) NOT NULL,
-  expiry TIMESTAMPTZ NOT NULL,
-  verified BOOLEAN DEFAULT false,
-  attempts INTEGER DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- ========================================
--- DONATION MANAGEMENT
--- ========================================
-
--- Donations Table
-CREATE TABLE donations (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  donor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  blood_type blood_type NOT NULL,
-  quantity INTEGER NOT NULL CHECK (quantity > 0),
-  unit_type VARCHAR(20) DEFAULT 'kantong',
-  donation_date TIMESTAMPTZ NOT NULL,
-  status donation_status DEFAULT 'pending',
-  notes TEXT,
-  medical_notes TEXT,
-  health_screening JSONB,
-  pre_donation_vitals JSONB,
-  post_donation_vitals JSONB,
-  donation_location TEXT,
-  approved_by UUID REFERENCES institutions(id),
-  approved_at TIMESTAMPTZ,
-  rejection_reason TEXT,
-  completion_notes TEXT,
-  next_eligible_date DATE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Blood Stock Table
-CREATE TABLE blood_stock (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  donation_id UUID REFERENCES donations(id),
-  blood_type blood_type NOT NULL,
-  quantity INTEGER NOT NULL CHECK (quantity >= 0),
-  unit_type VARCHAR(20) DEFAULT 'kantong',
-  expiry_date DATE NOT NULL,
-  status stock_status DEFAULT 'available',
-  batch_number VARCHAR(100) UNIQUE,
-  collection_date DATE NOT NULL,
-  storage_location VARCHAR(100),
-  storage_temperature DECIMAL(4,2),
-  temperature_log JSONB,
-  quality_check JSONB,
-  component_type VARCHAR(50) DEFAULT 'whole_blood',
-  crossmatch_data JSONB,
-  screening_results JSONB,
-  reserved_by UUID REFERENCES institutions(id),
-  reserved_at TIMESTAMPTZ,
-  reservation_expires TIMESTAMPTZ,
-  used_at TIMESTAMPTZ,
-  used_for TEXT,
-  notes TEXT,
-  cost DECIMAL(10,2),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Stock Ledger Table (for blood mutation audit)
-CREATE TABLE stock_ledger (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  stock_id UUID NOT NULL REFERENCES blood_stock(id) ON DELETE CASCADE,
-  mutation_type VARCHAR(50) NOT NULL,
-  quantity INTEGER NOT NULL,
-  related_request UUID,
-  related_donation UUID REFERENCES donations(id),
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Blood Stock History Table (for tracking all stock changes)
-CREATE TABLE blood_stock_history (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  blood_type blood_type NOT NULL,
-  change_type VARCHAR(20) NOT NULL CHECK (change_type IN ('add', 'reduce', 'used', 'expired')),
-  quantity_change INTEGER NOT NULL CHECK (quantity_change > 0),
-  previous_quantity INTEGER NOT NULL DEFAULT 0,
-  new_quantity INTEGER NOT NULL DEFAULT 0,
-  notes TEXT,
-  created_by UUID REFERENCES institutions(id),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- ========================================
--- REQUEST MANAGEMENT
--- ========================================
-
--- Blood Requests Table
-CREATE TABLE blood_requests (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  requester_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  partner_id UUID REFERENCES institutions(id),
-  patient_name VARCHAR(255) NOT NULL,
-  phone_number VARCHAR(20) NOT NULL,
-  blood_type blood_type NOT NULL,
-  quantity INTEGER NOT NULL CHECK (quantity > 0),
-  unit_type VARCHAR(20) DEFAULT 'kantong',
-  urgency_level priority_level DEFAULT 'medium',
-  status request_status DEFAULT 'pending',
-  patient_info JSONB,
-  medical_condition TEXT,
-  hospital_info JSONB,
-  pickup_address TEXT,
-  pickup_code VARCHAR(20),
-  delivery_address TEXT,
-  approved_by UUID REFERENCES institutions(id),
-  approved_at TIMESTAMPTZ,
-  fulfilled_by UUID REFERENCES institutions(id),
-  fulfilled_at TIMESTAMPTZ,
-  rejection_reason TEXT,
-  cancellation_reason TEXT,
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Pickup Schedules Table (for blood collection scheduling)
-CREATE TABLE pickup_schedules (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  request_id UUID NOT NULL REFERENCES blood_requests(id) ON DELETE CASCADE,
-  pmi_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  hospital_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  pickup_date DATE NOT NULL,
-  pickup_time TIME NOT NULL,
-  pickup_location TEXT NOT NULL,
-  unique_code VARCHAR(8) UNIQUE NOT NULL,
-  status pickup_status DEFAULT 'scheduled',
-  confirmed_at TIMESTAMPTZ,
-  confirmed_by UUID REFERENCES institutions(id),
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- ========================================
--- CAMPAIGN MANAGEMENT
--- ========================================
-
--- Blood Campaigns Table
--- Unified table for both event-based campaigns and fulfillment campaigns
-CREATE TABLE blood_campaigns (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  type VARCHAR(20) CHECK (type IN ('event', 'fulfillment')) DEFAULT 'event',
-  organizer_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  title VARCHAR(255) NOT NULL,
-  description TEXT,
-  campaign_image_url TEXT,
-  start_date TIMESTAMPTZ NOT NULL,
-  end_date TIMESTAMPTZ NOT NULL,
-  target_quantity INTEGER,
-  current_quantity INTEGER DEFAULT 0,
-  target_donors INTEGER,
-  current_donors INTEGER DEFAULT 0,
-  location TEXT NOT NULL,
-  address TEXT NOT NULL,
-  campaign_location GEOGRAPHY(POINT, 4326),
-  contact_person VARCHAR(100) NOT NULL,
-  contact_phone VARCHAR(20) NOT NULL,
-  requirements JSONB,
-  incentives JSONB,
-  status campaign_status DEFAULT 'draft',
-  registration_required BOOLEAN DEFAULT true,
-  max_participants INTEGER,
-  current_participants INTEGER DEFAULT 0,
-  social_sharing JSONB,
-  feedback_summary JSONB,
-  notes TEXT,
-  related_request UUID REFERENCES blood_requests(id),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Campaign Registrations Table
-CREATE TABLE campaign_registrations (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  campaign_id UUID NOT NULL REFERENCES blood_campaigns(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  registration_date TIMESTAMPTZ DEFAULT NOW(),
-  attendance_confirmed BOOLEAN DEFAULT false,
-  donation_completed BOOLEAN DEFAULT false,
-  donation_id UUID REFERENCES donations(id),
-  feedback_rating INTEGER CHECK (feedback_rating BETWEEN 1 AND 5),
-  feedback_comments TEXT,
-  check_in_time TIMESTAMPTZ,
-  check_out_time TIMESTAMPTZ,
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  UNIQUE(campaign_id, user_id)
-);
-
--- ========================================
--- NOTIFICATION SYSTEM
--- ========================================
-
--- Notifications Table (for both users and institutions)
-CREATE TABLE notifications (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
-  title VARCHAR(255) NOT NULL,
-  message TEXT NOT NULL,
-  type notification_type NOT NULL,
-  priority priority_level DEFAULT 'medium',
-  related_id UUID,
-  related_type VARCHAR(50),
-  is_read BOOLEAN DEFAULT false,
-  read_at TIMESTAMPTZ,
-  action_url TEXT,
-  action_label VARCHAR(100),
-  image_url TEXT,
-  push_sent BOOLEAN DEFAULT false,
-  email_sent BOOLEAN DEFAULT false,
-  sms_sent BOOLEAN DEFAULT false,
-  expires_at TIMESTAMPTZ,
-  metadata JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  CHECK (
-    (user_id IS NOT NULL AND institution_id IS NULL) OR
-    (user_id IS NULL AND institution_id IS NOT NULL)
-  )
-);
-
--- Push Notification Tokens Table
-CREATE TABLE push_tokens (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
-  token TEXT NOT NULL,
-  platform VARCHAR(20) NOT NULL,
-  device_id VARCHAR(255),
-  active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  CHECK (
-    (user_id IS NOT NULL AND institution_id IS NULL) OR
-    (user_id IS NULL AND institution_id IS NOT NULL)
-  ),
-  UNIQUE(token)
-);
-
--- ========================================
--- FULFILLMENT SYSTEM
--- ========================================
-
--- Fulfillment Requests Table
--- Tracks the fulfillment process for blood requests that cannot be fulfilled from stock
-CREATE TABLE fulfillment_requests (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  blood_request_id UUID NOT NULL REFERENCES blood_requests(id) ON DELETE CASCADE,
-  campaign_id UUID REFERENCES blood_campaigns(id) ON DELETE SET NULL,
-  pmi_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  patient_name VARCHAR(255) NOT NULL,
-  blood_type blood_type NOT NULL,
-  quantity_needed INTEGER NOT NULL CHECK (quantity_needed > 0),
-  quantity_collected INTEGER DEFAULT 0 CHECK (quantity_collected >= 0),
-  status fulfillment_status DEFAULT 'initiated',
-  urgency_level priority_level DEFAULT 'medium',
-  target_donors INTEGER,
-  confirmed_donors INTEGER DEFAULT 0,
-  completed_donors INTEGER DEFAULT 0,
-  retry_count INTEGER DEFAULT 0,
-  max_retries INTEGER DEFAULT 3,
-  search_radius_km INTEGER DEFAULT 20,
-  donor_criteria JSONB,
-  initiated_at TIMESTAMPTZ DEFAULT NOW(),
-  completed_at TIMESTAMPTZ,
-  cancelled_at TIMESTAMPTZ,
-  cancellation_reason TEXT,
-  notes TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  UNIQUE(blood_request_id)
-);
-
--- Donor Confirmations Table
--- Tracks individual donor responses to fulfillment requests
-CREATE TABLE donor_confirmations (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  fulfillment_request_id UUID NOT NULL REFERENCES fulfillment_requests(id) ON DELETE CASCADE,
-  campaign_id UUID REFERENCES blood_campaigns(id) ON DELETE CASCADE,
-  donor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  unique_code VARCHAR(12) UNIQUE,
-  status confirmation_status DEFAULT 'pending',
-  confirmed_at TIMESTAMPTZ,
-  code_generated_at TIMESTAMPTZ,
-  code_expires_at TIMESTAMPTZ,
-  code_verified BOOLEAN DEFAULT false,
-  code_verified_at TIMESTAMPTZ,
-  verified_by UUID REFERENCES institutions(id),
-  donation_id UUID REFERENCES donations(id),
-  donation_completed_at TIMESTAMPTZ,
-  rejection_reason TEXT,
-  failure_reason TEXT,
-  notified_at TIMESTAMPTZ,
-  notification_id UUID REFERENCES notifications(id),
-  check_in_time TIMESTAMPTZ,
-  check_out_time TIMESTAMPTZ,
-  notes TEXT,
-  distance_km NUMERIC(10, 2),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  UNIQUE(fulfillment_request_id, donor_id)
-);
-
--- ========================================
--- AUTHENTICATION & SESSIONS
--- ========================================
-
--- Refresh Tokens Table (for both users and institutions)
-CREATE TABLE refresh_tokens (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
-  token_hash VARCHAR(255) NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
-  revoked BOOLEAN DEFAULT false,
-  device_info JSONB,
-  ip_address INET,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  CHECK (
-    (user_id IS NOT NULL AND institution_id IS NULL) OR
-    (user_id IS NULL AND institution_id IS NOT NULL)
-  ),
-  UNIQUE(token_hash)
-);
-
--- OTP Sessions Table
-CREATE TABLE otp_sessions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  phone_number VARCHAR(20) NOT NULL,
-  session_token VARCHAR(255) UNIQUE NOT NULL,
-  expires_at TIMESTAMPTZ NOT NULL,
-  device_info JSONB,
-  ip_address INET,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- ========================================
--- REPORTING & ANALYTICS
--- ========================================
-
--- Monthly Reports Table
-CREATE TABLE monthly_reports (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
-  report_month INTEGER NOT NULL CHECK (report_month BETWEEN 1 AND 12),
-  report_year INTEGER NOT NULL CHECK (report_year >= 2020),
-  total_donations INTEGER DEFAULT 0,
-  total_quantity INTEGER DEFAULT 0,
-  total_requests INTEGER DEFAULT 0,
-  total_fulfilled INTEGER DEFAULT 0,
-  blood_type_breakdown JSONB,
-  campaign_participation INTEGER DEFAULT 0,
-  donor_demographics JSONB,
-  geographic_data JSONB,
-  efficiency_metrics JSONB,
-  financial_summary JSONB,
-  notes TEXT,
-  generated_at TIMESTAMPTZ DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  
-  UNIQUE(institution_id, report_month, report_year)
-);
-
--- System Settings Table
-CREATE TABLE system_settings (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  key VARCHAR(100) UNIQUE NOT NULL,
-  value JSONB NOT NULL,
-  description TEXT,
-  category VARCHAR(50) DEFAULT 'general',
-  is_public BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Audit Logs Table
-CREATE TABLE audit_logs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id UUID REFERENCES users(id),
-  institution_id UUID REFERENCES institutions(id),
-  action VARCHAR(100) NOT NULL,
-  table_name VARCHAR(100) NOT NULL,
-  record_id UUID,
-  old_values JSONB,
-  new_values JSONB,
-  ip_address INET,
-  user_agent TEXT,
-  api_endpoint VARCHAR(255),
-  http_method VARCHAR(10),
-  response_status INTEGER,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- ========================================
--- INDEXES FOR PERFORMANCE
--- ========================================
-
--- Users indexes
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_phone ON users(phone_number);
-CREATE INDEX idx_users_active ON users(active);
-CREATE INDEX idx_users_blood_type ON users(blood_type);
-CREATE INDEX idx_users_created_at ON users(created_at);
-CREATE INDEX idx_users_completion_rate ON users(completion_rate) WHERE completion_rate IS NOT NULL;
-CREATE INDEX idx_users_total_donations ON users(total_donations);
-CREATE INDEX idx_users_avg_response ON users(avg_response_minutes) WHERE avg_response_minutes IS NOT NULL;
-CREATE INDEX idx_users_last_donation ON users(last_donation_date) WHERE last_donation_date IS NOT NULL;
-CREATE INDEX idx_users_location ON users USING GIST(location) WHERE location IS NOT NULL;
-
--- Institutions indexes
-CREATE INDEX idx_institutions_email ON institutions(email);
-CREATE INDEX idx_institutions_type ON institutions(institution_type);
-CREATE INDEX idx_institutions_kota ON institutions(kota);
-CREATE INDEX idx_institutions_verified ON institutions(verified);
-CREATE INDEX idx_institutions_active ON institutions(active);
-CREATE INDEX idx_institutions_location ON institutions USING GIST(location) WHERE location IS NOT NULL;
-
--- Donations indexes
-CREATE INDEX idx_donations_donor_id ON donations(donor_id);
-CREATE INDEX idx_donations_institution_id ON donations(institution_id);
-CREATE INDEX idx_donations_blood_type ON donations(blood_type);
-CREATE INDEX idx_donations_status ON donations(status);
-CREATE INDEX idx_donations_donation_date ON donations(donation_date);
-
--- Blood stock indexes
-CREATE INDEX idx_blood_stock_institution_id ON blood_stock(institution_id);
-CREATE INDEX idx_blood_stock_blood_type ON blood_stock(blood_type);
-CREATE INDEX idx_blood_stock_status ON blood_stock(status);
-CREATE INDEX idx_blood_stock_expiry_date ON blood_stock(expiry_date);
-CREATE INDEX idx_blood_stock_batch_number ON blood_stock(batch_number);
-
--- Blood stock history indexes
-CREATE INDEX idx_blood_stock_history_institution ON blood_stock_history(institution_id);
-CREATE INDEX idx_blood_stock_history_blood_type ON blood_stock_history(blood_type);
-CREATE INDEX idx_blood_stock_history_created_at ON blood_stock_history(created_at DESC);
-CREATE INDEX idx_blood_stock_history_change_type ON blood_stock_history(change_type);
-
--- Blood requests indexes
-CREATE INDEX idx_blood_requests_requester_id ON blood_requests(requester_id);
-CREATE INDEX idx_blood_requests_partner_id ON blood_requests(partner_id);
-CREATE INDEX idx_blood_requests_blood_type ON blood_requests(blood_type);
-CREATE INDEX idx_blood_requests_status ON blood_requests(status);
-CREATE INDEX idx_blood_requests_urgency ON blood_requests(urgency_level);
-
--- Pickup schedules indexes
-CREATE INDEX idx_pickup_schedules_request_id ON pickup_schedules(request_id);
-CREATE INDEX idx_pickup_schedules_pmi_id ON pickup_schedules(pmi_id);
-CREATE INDEX idx_pickup_schedules_hospital_id ON pickup_schedules(hospital_id);
-CREATE INDEX idx_pickup_schedules_status ON pickup_schedules(status);
-CREATE INDEX idx_pickup_schedules_unique_code ON pickup_schedules(unique_code);
-CREATE INDEX idx_pickup_schedules_pickup_date ON pickup_schedules(pickup_date);
-
--- Campaign indexes
-CREATE INDEX idx_campaigns_organizer_id ON blood_campaigns(organizer_id);
-CREATE INDEX idx_campaigns_status ON blood_campaigns(status);
-CREATE INDEX idx_campaigns_start_date ON blood_campaigns(start_date);
-CREATE INDEX idx_campaigns_end_date ON blood_campaigns(end_date);
-
--- Notification indexes
-CREATE INDEX idx_notifications_user_id ON notifications(user_id);
-CREATE INDEX idx_notifications_institution_id ON notifications(institution_id);
-CREATE INDEX idx_notifications_is_read ON notifications(is_read);
-CREATE INDEX idx_notifications_read_at ON notifications(read_at);
-CREATE INDEX idx_notifications_type ON notifications(type);
-CREATE INDEX idx_notifications_priority ON notifications(priority);
-CREATE INDEX idx_notifications_created_at ON notifications(created_at);
-
--- Fulfillment requests indexes
-CREATE INDEX idx_fulfillment_requests_blood_request ON fulfillment_requests(blood_request_id);
-CREATE INDEX idx_fulfillment_requests_campaign ON fulfillment_requests(campaign_id);
-CREATE INDEX idx_fulfillment_requests_pmi ON fulfillment_requests(pmi_id);
-CREATE INDEX idx_fulfillment_requests_status ON fulfillment_requests(status);
-CREATE INDEX idx_fulfillment_requests_blood_type ON fulfillment_requests(blood_type);
-CREATE INDEX idx_fulfillment_requests_urgency ON fulfillment_requests(urgency_level);
-CREATE INDEX idx_fulfillment_requests_initiated_at ON fulfillment_requests(initiated_at DESC);
-
--- Donor confirmations indexes
-CREATE INDEX idx_donor_confirmations_fulfillment ON donor_confirmations(fulfillment_request_id);
-CREATE INDEX idx_donor_confirmations_campaign ON donor_confirmations(campaign_id);
-CREATE INDEX idx_donor_confirmations_donor ON donor_confirmations(donor_id);
-CREATE INDEX idx_donor_confirmations_status ON donor_confirmations(status);
-CREATE INDEX idx_donor_confirmations_unique_code ON donor_confirmations(unique_code);
-CREATE INDEX idx_donor_confirmations_expires_at ON donor_confirmations(code_expires_at);
-CREATE INDEX idx_donor_confirmations_verified ON donor_confirmations(code_verified);
-CREATE INDEX idx_donor_confirmations_distance ON donor_confirmations(distance_km);
-
--- ========================================
--- TRIGGERS FOR AUTOMATION
--- ========================================
-
--- Function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Add triggers to tables with updated_at
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_institutions_updated_at BEFORE UPDATE ON institutions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_donations_updated_at BEFORE UPDATE ON donations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_blood_stock_updated_at BEFORE UPDATE ON blood_stock FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_blood_requests_updated_at BEFORE UPDATE ON blood_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_pickup_schedules_updated_at BEFORE UPDATE ON pickup_schedules FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_blood_campaigns_updated_at BEFORE UPDATE ON blood_campaigns FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_fulfillment_requests_updated_at BEFORE UPDATE ON fulfillment_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_donor_confirmations_updated_at BEFORE UPDATE ON donor_confirmations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- Function to log stock mutations
-CREATE OR REPLACE FUNCTION log_stock_mutation()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO stock_ledger (
-    stock_id, mutation_type, quantity, related_donation, notes
-  ) VALUES (
-    NEW.id,
-    'MASUK_DONASI',
-    NEW.quantity,
-    NEW.donation_id,
-    'Auto ledger: stok masuk dari donasi'
-  );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER blood_stock_insert_ledger
-  AFTER INSERT ON blood_stock
-  FOR EACH ROW EXECUTE FUNCTION log_stock_mutation();
-
--- Function to update campaign statistics
-CREATE OR REPLACE FUNCTION update_campaign_stats()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        UPDATE blood_campaigns 
-        SET current_participants = current_participants + 1
-        WHERE id = NEW.campaign_id;
-        
-        IF NEW.donation_completed THEN
-            UPDATE blood_campaigns 
-            SET current_donors = current_donors + 1
-            WHERE id = NEW.campaign_id;
-        END IF;
-        
-        RETURN NEW;
-    END IF;
+    -- Users Table (Pendonor only - login via OTP WhatsApp)
+    CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE,
+    phone_number VARCHAR(20) UNIQUE NOT NULL,
+    full_name VARCHAR(100) NOT NULL,
+    address TEXT NOT NULL,
+    location GEOGRAPHY(POINT, 4326),
+    date_of_birth DATE NOT NULL,
+    blood_type blood_type NOT NULL,
+    last_donation_date DATE,
+    health_notes TEXT,
+    total_points INTEGER DEFAULT 0,
+    profile_picture TEXT,
+    active BOOLEAN DEFAULT true,
+    phone_verified BOOLEAN DEFAULT false,
+    last_login TIMESTAMPTZ,
     
-    IF TG_OP = 'UPDATE' THEN
-        IF OLD.donation_completed != NEW.donation_completed THEN
+    -- Campaign statistics (auto-updated)
+    total_campaigns_registered INTEGER DEFAULT 0,
+    total_campaigns_completed INTEGER DEFAULT 0,
+    total_campaigns_cancelled INTEGER DEFAULT 0,
+    completion_rate NUMERIC(5,2) GENERATED ALWAYS AS (
+        CASE 
+        WHEN total_campaigns_registered > 0 
+        THEN ROUND((total_campaigns_completed::NUMERIC / total_campaigns_registered * 100), 2)
+        ELSE NULL 
+        END
+    ) STORED,
+    
+    -- Donation statistics (auto-updated)
+    total_donations INTEGER DEFAULT 0,
+    total_rejections INTEGER DEFAULT 0,
+    last_rejection_date DATE,
+    last_rejection_reason TEXT,
+    
+    -- Response time metrics
+    avg_response_minutes INTEGER,
+    
+    -- Preferred donation schedule
+    preferred_donation_time VARCHAR(20) CHECK (
+        preferred_donation_time IS NULL OR
+        preferred_donation_time IN ('morning', 'afternoon', 'evening', 'flexible')
+    ) DEFAULT 'flexible',
+    availability_days JSONB DEFAULT '["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]'::jsonb,
+    
+    -- Notification preferences
+    notifications_enabled BOOLEAN DEFAULT true,
+    
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Institutions Table (RS/PMI - login via email+password)
+    CREATE TABLE institutions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_type institution_type NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    institution_name VARCHAR(255) NOT NULL,
+    address TEXT NOT NULL,
+    location GEOGRAPHY(POINT, 4326),
+    phone_number VARCHAR(20),
+    kota VARCHAR(100),
+    provinsi VARCHAR(100),
+    license_number VARCHAR(100),
+    verified BOOLEAN DEFAULT false,
+    operating_hours JSONB,
+    facilities JSONB,
+    capacity INTEGER DEFAULT 0,
+    coverage_area JSONB,
+    description TEXT,
+    website_url TEXT,
+    social_media JSONB,
+    accreditation JSONB,
+    active BOOLEAN DEFAULT true,
+    last_login TIMESTAMPTZ,
+    notification_email VARCHAR(255),
+    email_notifications BOOLEAN DEFAULT true,
+    push_notifications BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- OTP Records Table (for WhatsApp OTP authentication - Donors only)
+    CREATE TABLE otp_records (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    phone VARCHAR(20) NOT NULL,
+    otp VARCHAR(10) NOT NULL,
+    expiry TIMESTAMPTZ NOT NULL,
+    verified BOOLEAN DEFAULT false,
+    attempts INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- ========================================
+    -- DONATION MANAGEMENT
+    -- ========================================
+
+    -- Donations Table
+    CREATE TABLE donations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    donor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    blood_type blood_type NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_type VARCHAR(20) DEFAULT 'kantong',
+    donation_date TIMESTAMPTZ NOT NULL,
+    status donation_status DEFAULT 'pending',
+    notes TEXT,
+    medical_notes TEXT,
+    health_screening JSONB,
+    pre_donation_vitals JSONB,
+    post_donation_vitals JSONB,
+    donation_location TEXT,
+    approved_by UUID REFERENCES institutions(id),
+    approved_at TIMESTAMPTZ,
+    rejection_reason TEXT,
+    completion_notes TEXT,
+    next_eligible_date DATE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Blood Stock Table
+    CREATE TABLE blood_stock (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    donation_id UUID REFERENCES donations(id),
+    blood_type blood_type NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity >= 0),
+    unit_type VARCHAR(20) DEFAULT 'kantong',
+    expiry_date DATE NOT NULL,
+    status stock_status DEFAULT 'available',
+    batch_number VARCHAR(100) UNIQUE,
+    collection_date DATE NOT NULL,
+    storage_location VARCHAR(100),
+    storage_temperature DECIMAL(4,2),
+    temperature_log JSONB,
+    quality_check JSONB,
+    component_type VARCHAR(50) DEFAULT 'whole_blood',
+    crossmatch_data JSONB,
+    screening_results JSONB,
+    reserved_by UUID REFERENCES institutions(id),
+    reserved_at TIMESTAMPTZ,
+    reservation_expires TIMESTAMPTZ,
+    used_at TIMESTAMPTZ,
+    used_for TEXT,
+    notes TEXT,
+    cost DECIMAL(10,2),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Stock Ledger Table (for blood mutation audit)
+    CREATE TABLE stock_ledger (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    stock_id UUID NOT NULL REFERENCES blood_stock(id) ON DELETE CASCADE,
+    mutation_type VARCHAR(50) NOT NULL,
+    quantity INTEGER NOT NULL,
+    related_request UUID,
+    related_donation UUID REFERENCES donations(id),
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Blood Stock History Table (for tracking all stock changes)
+    CREATE TABLE blood_stock_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    blood_type blood_type NOT NULL,
+    change_type VARCHAR(20) NOT NULL CHECK (change_type IN ('add', 'reduce', 'used', 'expired')),
+    quantity_change INTEGER NOT NULL CHECK (quantity_change > 0),
+    previous_quantity INTEGER NOT NULL DEFAULT 0,
+    new_quantity INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_by UUID REFERENCES institutions(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- ========================================
+    -- REQUEST MANAGEMENT
+    -- ========================================
+
+    -- Blood Requests Table
+    CREATE TABLE blood_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    requester_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    partner_id UUID REFERENCES institutions(id),
+    patient_name VARCHAR(255) NOT NULL,
+    phone_number VARCHAR(20) NOT NULL,
+    blood_type blood_type NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_type VARCHAR(20) DEFAULT 'kantong',
+    urgency_level priority_level DEFAULT 'medium',
+    status request_status DEFAULT 'pending',
+    patient_info JSONB,
+    medical_condition TEXT,
+    hospital_info JSONB,
+    pickup_address TEXT,
+    pickup_code VARCHAR(20),
+    delivery_address TEXT,
+    approved_by UUID REFERENCES institutions(id),
+    approved_at TIMESTAMPTZ,
+    fulfilled_by UUID REFERENCES institutions(id),
+    fulfilled_at TIMESTAMPTZ,
+    rejection_reason TEXT,
+    cancellation_reason TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Pickup Schedules Table (for blood collection scheduling)
+    CREATE TABLE pickup_schedules (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    request_id UUID NOT NULL REFERENCES blood_requests(id) ON DELETE CASCADE,
+    pmi_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    hospital_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    pickup_date DATE NOT NULL,
+    pickup_time TIME NOT NULL,
+    pickup_location TEXT NOT NULL,
+    unique_code VARCHAR(8) UNIQUE NOT NULL,
+    status pickup_status DEFAULT 'scheduled',
+    confirmed_at TIMESTAMPTZ,
+    confirmed_by UUID REFERENCES institutions(id),
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- ========================================
+    -- CAMPAIGN MANAGEMENT
+    -- ========================================
+
+    -- Blood Campaigns Table
+    -- Unified table for both event-based campaigns and fulfillment campaigns
+    CREATE TABLE blood_campaigns (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    type VARCHAR(20) CHECK (type IN ('event', 'fulfillment')) DEFAULT 'event',
+    organizer_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    campaign_image_url TEXT,
+    start_date TIMESTAMPTZ NOT NULL,
+    end_date TIMESTAMPTZ NOT NULL,
+    target_quantity INTEGER,
+    current_quantity INTEGER DEFAULT 0,
+    target_donors INTEGER,
+    current_donors INTEGER DEFAULT 0,
+    location TEXT NOT NULL,
+    address TEXT NOT NULL,
+    campaign_location GEOGRAPHY(POINT, 4326),
+    contact_person VARCHAR(100) NOT NULL,
+    contact_phone VARCHAR(20) NOT NULL,
+    requirements JSONB,
+    incentives JSONB,
+    status campaign_status DEFAULT 'draft',
+    registration_required BOOLEAN DEFAULT true,
+    max_participants INTEGER,
+    current_participants INTEGER DEFAULT 0,
+    social_sharing JSONB,
+    feedback_summary JSONB,
+    notes TEXT,
+    related_request UUID REFERENCES blood_requests(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Campaign Registrations Table
+    CREATE TABLE campaign_registrations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    campaign_id UUID NOT NULL REFERENCES blood_campaigns(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    registration_date TIMESTAMPTZ DEFAULT NOW(),
+    attendance_confirmed BOOLEAN DEFAULT false,
+    donation_completed BOOLEAN DEFAULT false,
+    donation_id UUID REFERENCES donations(id),
+    feedback_rating INTEGER CHECK (feedback_rating BETWEEN 1 AND 5),
+    feedback_comments TEXT,
+    check_in_time TIMESTAMPTZ,
+    check_out_time TIMESTAMPTZ,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    UNIQUE(campaign_id, user_id)
+    );
+
+    -- ========================================
+    -- NOTIFICATION SYSTEM
+    -- ========================================
+
+    -- Notifications Table (for both users and institutions)
+    CREATE TABLE notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    type notification_type NOT NULL,
+    priority priority_level DEFAULT 'medium',
+    related_id UUID,
+    related_type VARCHAR(50),
+    is_read BOOLEAN DEFAULT false,
+    read_at TIMESTAMPTZ,
+    action_url TEXT,
+    action_label VARCHAR(100),
+    image_url TEXT,
+    push_sent BOOLEAN DEFAULT false,
+    email_sent BOOLEAN DEFAULT false,
+    sms_sent BOOLEAN DEFAULT false,
+    expires_at TIMESTAMPTZ,
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CHECK (
+        (user_id IS NOT NULL AND institution_id IS NULL) OR
+        (user_id IS NULL AND institution_id IS NOT NULL)
+    )
+    );
+
+    -- Push Notification Tokens Table
+    CREATE TABLE push_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
+    token TEXT NOT NULL,
+    platform VARCHAR(20) NOT NULL,
+    device_id VARCHAR(255),
+    active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CHECK (
+        (user_id IS NOT NULL AND institution_id IS NULL) OR
+        (user_id IS NULL AND institution_id IS NOT NULL)
+    ),
+    UNIQUE(token)
+    );
+
+    -- ========================================
+    -- FULFILLMENT SYSTEM
+    -- ========================================
+
+    -- Fulfillment Requests Table
+    -- Tracks the fulfillment process for blood requests that cannot be fulfilled from stock
+    CREATE TABLE fulfillment_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    blood_request_id UUID NOT NULL REFERENCES blood_requests(id) ON DELETE CASCADE,
+    campaign_id UUID REFERENCES blood_campaigns(id) ON DELETE SET NULL,
+    pmi_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    patient_name VARCHAR(255) NOT NULL,
+    blood_type blood_type NOT NULL,
+    quantity_needed INTEGER NOT NULL CHECK (quantity_needed > 0),
+    quantity_collected INTEGER DEFAULT 0 CHECK (quantity_collected >= 0),
+    status fulfillment_status DEFAULT 'initiated',
+    urgency_level priority_level DEFAULT 'medium',
+    target_donors INTEGER,
+    confirmed_donors INTEGER DEFAULT 0,
+    completed_donors INTEGER DEFAULT 0,
+    retry_count INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 3,
+    search_radius_km INTEGER DEFAULT 20,
+    donor_criteria JSONB,
+    initiated_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    cancellation_reason TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    UNIQUE(blood_request_id)
+    );
+
+    -- Donor Confirmations Table
+    -- Tracks individual donor responses to fulfillment requests
+    CREATE TABLE donor_confirmations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    fulfillment_request_id UUID NOT NULL REFERENCES fulfillment_requests(id) ON DELETE CASCADE,
+    campaign_id UUID REFERENCES blood_campaigns(id) ON DELETE CASCADE,
+    donor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    unique_code VARCHAR(12) UNIQUE,
+    status confirmation_status DEFAULT 'pending',
+    confirmed_at TIMESTAMPTZ,
+    code_generated_at TIMESTAMPTZ,
+    code_expires_at TIMESTAMPTZ,
+    code_verified BOOLEAN DEFAULT false,
+    code_verified_at TIMESTAMPTZ,
+    verified_by UUID REFERENCES institutions(id),
+    donation_id UUID REFERENCES donations(id),
+    donation_completed_at TIMESTAMPTZ,
+    rejection_reason TEXT,
+    failure_reason TEXT,
+    notified_at TIMESTAMPTZ,
+    notification_id UUID REFERENCES notifications(id),
+    check_in_time TIMESTAMPTZ,
+    check_out_time TIMESTAMPTZ,
+    notes TEXT,
+    distance_km NUMERIC(10, 2),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    UNIQUE(fulfillment_request_id, donor_id)
+    );
+
+    -- ========================================
+    -- AUTHENTICATION & SESSIONS
+    -- ========================================
+
+    -- Refresh Tokens Table (for both users and institutions)
+    CREATE TABLE refresh_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked BOOLEAN DEFAULT false,
+    device_info JSONB,
+    ip_address INET,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    CHECK (
+        (user_id IS NOT NULL AND institution_id IS NULL) OR
+        (user_id IS NULL AND institution_id IS NOT NULL)
+    ),
+    UNIQUE(token_hash)
+    );
+
+    -- OTP Sessions Table
+    CREATE TABLE otp_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    phone_number VARCHAR(20) NOT NULL,
+    session_token VARCHAR(255) UNIQUE NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    device_info JSONB,
+    ip_address INET,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- ========================================
+    -- REPORTING & ANALYTICS
+    -- ========================================
+
+    -- Monthly Reports Table
+    CREATE TABLE monthly_reports (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    report_month INTEGER NOT NULL CHECK (report_month BETWEEN 1 AND 12),
+    report_year INTEGER NOT NULL CHECK (report_year >= 2020),
+    total_donations INTEGER DEFAULT 0,
+    total_quantity INTEGER DEFAULT 0,
+    total_requests INTEGER DEFAULT 0,
+    total_fulfilled INTEGER DEFAULT 0,
+    blood_type_breakdown JSONB,
+    campaign_participation INTEGER DEFAULT 0,
+    donor_demographics JSONB,
+    geographic_data JSONB,
+    efficiency_metrics JSONB,
+    financial_summary JSONB,
+    notes TEXT,
+    generated_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    UNIQUE(institution_id, report_month, report_year)
+    );
+
+    -- System Settings Table
+    CREATE TABLE system_settings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    key VARCHAR(100) UNIQUE NOT NULL,
+    value JSONB NOT NULL,
+    description TEXT,
+    category VARCHAR(50) DEFAULT 'general',
+    is_public BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Audit Logs Table
+    CREATE TABLE audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id),
+    institution_id UUID REFERENCES institutions(id),
+    action VARCHAR(100) NOT NULL,
+    table_name VARCHAR(100) NOT NULL,
+    record_id UUID,
+    old_values JSONB,
+    new_values JSONB,
+    ip_address INET,
+    user_agent TEXT,
+    api_endpoint VARCHAR(255),
+    http_method VARCHAR(10),
+    response_status INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- ========================================
+    -- INDEXES FOR PERFORMANCE
+    -- ========================================
+
+    -- Users indexes
+    CREATE INDEX idx_users_email ON users(email);
+    CREATE INDEX idx_users_phone ON users(phone_number);
+    CREATE INDEX idx_users_active ON users(active);
+    CREATE INDEX idx_users_blood_type ON users(blood_type);
+    CREATE INDEX idx_users_created_at ON users(created_at);
+    CREATE INDEX idx_users_completion_rate ON users(completion_rate) WHERE completion_rate IS NOT NULL;
+    CREATE INDEX idx_users_total_donations ON users(total_donations);
+    CREATE INDEX idx_users_avg_response ON users(avg_response_minutes) WHERE avg_response_minutes IS NOT NULL;
+    CREATE INDEX idx_users_last_donation ON users(last_donation_date) WHERE last_donation_date IS NOT NULL;
+    CREATE INDEX idx_users_location ON users USING GIST(location) WHERE location IS NOT NULL;
+
+    -- Institutions indexes
+    CREATE INDEX idx_institutions_email ON institutions(email);
+    CREATE INDEX idx_institutions_type ON institutions(institution_type);
+    CREATE INDEX idx_institutions_kota ON institutions(kota);
+    CREATE INDEX idx_institutions_verified ON institutions(verified);
+    CREATE INDEX idx_institutions_active ON institutions(active);
+    CREATE INDEX idx_institutions_location ON institutions USING GIST(location) WHERE location IS NOT NULL;
+
+    -- Donations indexes
+    CREATE INDEX idx_donations_donor_id ON donations(donor_id);
+    CREATE INDEX idx_donations_institution_id ON donations(institution_id);
+    CREATE INDEX idx_donations_blood_type ON donations(blood_type);
+    CREATE INDEX idx_donations_status ON donations(status);
+    CREATE INDEX idx_donations_donation_date ON donations(donation_date);
+
+    -- Blood stock indexes
+    CREATE INDEX idx_blood_stock_institution_id ON blood_stock(institution_id);
+    CREATE INDEX idx_blood_stock_blood_type ON blood_stock(blood_type);
+    CREATE INDEX idx_blood_stock_status ON blood_stock(status);
+    CREATE INDEX idx_blood_stock_expiry_date ON blood_stock(expiry_date);
+    CREATE INDEX idx_blood_stock_batch_number ON blood_stock(batch_number);
+
+    -- Blood stock history indexes
+    CREATE INDEX idx_blood_stock_history_institution ON blood_stock_history(institution_id);
+    CREATE INDEX idx_blood_stock_history_blood_type ON blood_stock_history(blood_type);
+    CREATE INDEX idx_blood_stock_history_created_at ON blood_stock_history(created_at DESC);
+    CREATE INDEX idx_blood_stock_history_change_type ON blood_stock_history(change_type);
+
+    -- Blood requests indexes
+    CREATE INDEX idx_blood_requests_requester_id ON blood_requests(requester_id);
+    CREATE INDEX idx_blood_requests_partner_id ON blood_requests(partner_id);
+    CREATE INDEX idx_blood_requests_blood_type ON blood_requests(blood_type);
+    CREATE INDEX idx_blood_requests_status ON blood_requests(status);
+    CREATE INDEX idx_blood_requests_urgency ON blood_requests(urgency_level);
+
+    -- Pickup schedules indexes
+    CREATE INDEX idx_pickup_schedules_request_id ON pickup_schedules(request_id);
+    CREATE INDEX idx_pickup_schedules_pmi_id ON pickup_schedules(pmi_id);
+    CREATE INDEX idx_pickup_schedules_hospital_id ON pickup_schedules(hospital_id);
+    CREATE INDEX idx_pickup_schedules_status ON pickup_schedules(status);
+    CREATE INDEX idx_pickup_schedules_unique_code ON pickup_schedules(unique_code);
+    CREATE INDEX idx_pickup_schedules_pickup_date ON pickup_schedules(pickup_date);
+
+    -- Campaign indexes
+    CREATE INDEX idx_campaigns_organizer_id ON blood_campaigns(organizer_id);
+    CREATE INDEX idx_campaigns_status ON blood_campaigns(status);
+    CREATE INDEX idx_campaigns_start_date ON blood_campaigns(start_date);
+    CREATE INDEX idx_campaigns_end_date ON blood_campaigns(end_date);
+
+    -- Notification indexes
+    CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+    CREATE INDEX idx_notifications_institution_id ON notifications(institution_id);
+    CREATE INDEX idx_notifications_is_read ON notifications(is_read);
+    CREATE INDEX idx_notifications_read_at ON notifications(read_at);
+    CREATE INDEX idx_notifications_type ON notifications(type);
+    CREATE INDEX idx_notifications_priority ON notifications(priority);
+    CREATE INDEX idx_notifications_created_at ON notifications(created_at);
+
+    -- Fulfillment requests indexes
+    CREATE INDEX idx_fulfillment_requests_blood_request ON fulfillment_requests(blood_request_id);
+    CREATE INDEX idx_fulfillment_requests_campaign ON fulfillment_requests(campaign_id);
+    CREATE INDEX idx_fulfillment_requests_pmi ON fulfillment_requests(pmi_id);
+    CREATE INDEX idx_fulfillment_requests_status ON fulfillment_requests(status);
+    CREATE INDEX idx_fulfillment_requests_blood_type ON fulfillment_requests(blood_type);
+    CREATE INDEX idx_fulfillment_requests_urgency ON fulfillment_requests(urgency_level);
+    CREATE INDEX idx_fulfillment_requests_initiated_at ON fulfillment_requests(initiated_at DESC);
+
+    -- Donor confirmations indexes
+    CREATE INDEX idx_donor_confirmations_fulfillment ON donor_confirmations(fulfillment_request_id);
+    CREATE INDEX idx_donor_confirmations_campaign ON donor_confirmations(campaign_id);
+    CREATE INDEX idx_donor_confirmations_donor ON donor_confirmations(donor_id);
+    CREATE INDEX idx_donor_confirmations_status ON donor_confirmations(status);
+    CREATE INDEX idx_donor_confirmations_unique_code ON donor_confirmations(unique_code);
+    CREATE INDEX idx_donor_confirmations_expires_at ON donor_confirmations(code_expires_at);
+    CREATE INDEX idx_donor_confirmations_verified ON donor_confirmations(code_verified);
+    CREATE INDEX idx_donor_confirmations_distance ON donor_confirmations(distance_km);
+
+    -- ========================================
+    -- TRIGGERS FOR AUTOMATION
+    -- ========================================
+
+    -- Function to update updated_at timestamp
+    CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+    END;
+    $$ language 'plpgsql';
+
+    -- Add triggers to tables with updated_at
+    CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    CREATE TRIGGER update_institutions_updated_at BEFORE UPDATE ON institutions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    CREATE TRIGGER update_donations_updated_at BEFORE UPDATE ON donations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    CREATE TRIGGER update_blood_stock_updated_at BEFORE UPDATE ON blood_stock FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    CREATE TRIGGER update_blood_requests_updated_at BEFORE UPDATE ON blood_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    CREATE TRIGGER update_pickup_schedules_updated_at BEFORE UPDATE ON pickup_schedules FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    CREATE TRIGGER update_blood_campaigns_updated_at BEFORE UPDATE ON blood_campaigns FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    CREATE TRIGGER update_fulfillment_requests_updated_at BEFORE UPDATE ON fulfillment_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    CREATE TRIGGER update_donor_confirmations_updated_at BEFORE UPDATE ON donor_confirmations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+    -- Function to log stock mutations
+    CREATE OR REPLACE FUNCTION log_stock_mutation()
+    RETURNS TRIGGER AS $$
+    BEGIN
+    INSERT INTO stock_ledger (
+        stock_id, mutation_type, quantity, related_donation, notes
+    ) VALUES (
+        NEW.id,
+        'MASUK_DONASI',
+        NEW.quantity,
+        NEW.donation_id,
+        'Auto ledger: stok masuk dari donasi'
+    );
+    RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER blood_stock_insert_ledger
+    AFTER INSERT ON blood_stock
+    FOR EACH ROW EXECUTE FUNCTION log_stock_mutation();
+
+    -- Function to update campaign statistics
+    CREATE OR REPLACE FUNCTION update_campaign_stats()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        IF TG_OP = 'INSERT' THEN
+            UPDATE blood_campaigns 
+            SET current_participants = current_participants + 1
+            WHERE id = NEW.campaign_id;
+            
             IF NEW.donation_completed THEN
                 UPDATE blood_campaigns 
                 SET current_donors = current_donors + 1
                 WHERE id = NEW.campaign_id;
-            ELSE
+            END IF;
+            
+            RETURN NEW;
+        END IF;
+        
+        IF TG_OP = 'UPDATE' THEN
+            IF OLD.donation_completed != NEW.donation_completed THEN
+                IF NEW.donation_completed THEN
+                    UPDATE blood_campaigns 
+                    SET current_donors = current_donors + 1
+                    WHERE id = NEW.campaign_id;
+                ELSE
+                    UPDATE blood_campaigns 
+                    SET current_donors = current_donors - 1
+                    WHERE id = NEW.campaign_id;
+                END IF;
+            END IF;
+            
+            RETURN NEW;
+        END IF;
+        
+        IF TG_OP = 'DELETE' THEN
+            UPDATE blood_campaigns 
+            SET current_participants = current_participants - 1
+            WHERE id = OLD.campaign_id;
+            
+            IF OLD.donation_completed THEN
                 UPDATE blood_campaigns 
                 SET current_donors = current_donors - 1
-                WHERE id = NEW.campaign_id;
+                WHERE id = OLD.campaign_id;
             END IF;
+            
+            RETURN OLD;
         END IF;
         
-        RETURN NEW;
-    END IF;
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER campaign_stats_trigger
+        AFTER INSERT OR UPDATE OR DELETE ON campaign_registrations
+        FOR EACH ROW EXECUTE FUNCTION update_campaign_stats();
+
+    -- ========================================
+    -- DONOR POINTS SYSTEM
+    -- ========================================
     
-    IF TG_OP = 'DELETE' THEN
-        UPDATE blood_campaigns 
-        SET current_participants = current_participants - 1
-        WHERE id = OLD.campaign_id;
-        
-        IF OLD.donation_completed THEN
-            UPDATE blood_campaigns 
-            SET current_donors = current_donors - 1
-            WHERE id = OLD.campaign_id;
-        END IF;
-        
-        RETURN OLD;
-    END IF;
-    
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER campaign_stats_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON campaign_registrations
-    FOR EACH ROW EXECUTE FUNCTION update_campaign_stats();
-
--- ========================================
--- FULFILLMENT SYSTEM TRIGGERS & FUNCTIONS
--- ========================================
-
--- Function to update campaign statistics for users
-CREATE OR REPLACE FUNCTION update_user_campaign_stats()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        UPDATE users 
-        SET total_campaigns_registered = total_campaigns_registered + 1
-        WHERE id = NEW.user_id;
-        
-        IF NEW.donation_completed THEN
+    -- Function to add points when donor confirmation is completed
+    CREATE OR REPLACE FUNCTION add_donor_points_on_confirmation()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        -- Add 50 points when donor confirmation status changes to 'completed'
+        IF NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
             UPDATE users 
-            SET total_campaigns_completed = total_campaigns_completed + 1
-            WHERE id = NEW.user_id;
+            SET total_points = total_points + 50
+            WHERE id = NEW.donor_id;
+            
+            -- Log the points addition
+            RAISE NOTICE 'Points added to donor %: +50 points (confirmation %)', NEW.donor_id, NEW.id;
         END IF;
         
         RETURN NEW;
-    END IF;
-    
-    IF TG_OP = 'UPDATE' THEN
-        IF OLD.donation_completed != NEW.donation_completed THEN
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER donor_confirmation_completed_add_points
+        AFTER UPDATE ON donor_confirmations
+        FOR EACH ROW EXECUTE FUNCTION add_donor_points_on_confirmation();
+
+    -- ========================================
+    -- FULFILLMENT SYSTEM TRIGGERS & FUNCTIONS
+    -- ========================================
+
+    -- Function to update campaign statistics for users
+    CREATE OR REPLACE FUNCTION update_user_campaign_stats()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        IF TG_OP = 'INSERT' THEN
+            UPDATE users 
+            SET total_campaigns_registered = total_campaigns_registered + 1
+            WHERE id = NEW.user_id;
+            
             IF NEW.donation_completed THEN
                 UPDATE users 
                 SET total_campaigns_completed = total_campaigns_completed + 1
                 WHERE id = NEW.user_id;
-            ELSE
+            END IF;
+            
+            RETURN NEW;
+        END IF;
+        
+        IF TG_OP = 'UPDATE' THEN
+            IF OLD.donation_completed != NEW.donation_completed THEN
+                IF NEW.donation_completed THEN
+                    UPDATE users 
+                    SET total_campaigns_completed = total_campaigns_completed + 1
+                    WHERE id = NEW.user_id;
+                ELSE
+                    UPDATE users 
+                    SET total_campaigns_completed = GREATEST(total_campaigns_completed - 1, 0)
+                    WHERE id = NEW.user_id;
+                END IF;
+            END IF;
+            
+            IF OLD.attendance_confirmed = true AND NEW.attendance_confirmed = false THEN
+                UPDATE users 
+                SET total_campaigns_cancelled = total_campaigns_cancelled + 1
+                WHERE id = NEW.user_id;
+            END IF;
+            
+            RETURN NEW;
+        END IF;
+        
+        IF TG_OP = 'DELETE' THEN
+            UPDATE users 
+            SET total_campaigns_registered = GREATEST(total_campaigns_registered - 1, 0)
+            WHERE id = OLD.user_id;
+            
+            IF OLD.donation_completed THEN
                 UPDATE users 
                 SET total_campaigns_completed = GREATEST(total_campaigns_completed - 1, 0)
-                WHERE id = NEW.user_id;
+                WHERE id = OLD.user_id;
+            END IF;
+            
+            RETURN OLD;
+        END IF;
+        
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER user_campaign_stats_trigger
+        AFTER INSERT OR UPDATE OR DELETE ON campaign_registrations
+        FOR EACH ROW EXECUTE FUNCTION update_user_campaign_stats();
+
+    -- Function to update donation statistics for users
+    CREATE OR REPLACE FUNCTION update_user_donation_stats()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+            IF NEW.status = 'completed' THEN
+                UPDATE users 
+                SET 
+                    total_donations = (
+                        SELECT COUNT(*) FROM donations 
+                        WHERE donor_id = NEW.donor_id AND status = 'completed'
+                    ),
+                    last_donation_date = NEW.donation_date::DATE
+                WHERE id = NEW.donor_id;
+            END IF;
+            
+            IF NEW.status = 'rejected' AND (OLD.status IS NULL OR OLD.status != 'rejected') THEN
+                UPDATE users 
+                SET 
+                    total_rejections = total_rejections + 1,
+                    last_rejection_date = CURRENT_DATE,
+                    last_rejection_reason = NEW.rejection_reason
+                WHERE id = NEW.donor_id;
+            END IF;
+            
+            RETURN NEW;
+        END IF;
+        
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER user_donation_stats_trigger
+        AFTER INSERT OR UPDATE ON donations
+        FOR EACH ROW EXECUTE FUNCTION update_user_donation_stats();
+
+    -- Function to update fulfillment statistics
+    CREATE OR REPLACE FUNCTION update_fulfillment_stats()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+            UPDATE fulfillment_requests 
+            SET 
+                confirmed_donors = (
+                    SELECT COUNT(*) 
+                    FROM donor_confirmations 
+                    WHERE fulfillment_request_id = NEW.fulfillment_request_id 
+                    AND status = 'confirmed'
+                ),
+                completed_donors = (
+                    SELECT COUNT(*) 
+                    FROM donor_confirmations 
+                    WHERE fulfillment_request_id = NEW.fulfillment_request_id 
+                    AND status = 'completed'
+                ),
+                quantity_collected = (
+                    SELECT COALESCE(SUM(d.quantity), 0)
+                    FROM donor_confirmations dc
+                    JOIN donations d ON dc.donation_id = d.id
+                    WHERE dc.fulfillment_request_id = NEW.fulfillment_request_id
+                    AND d.status = 'completed'
+                )
+            WHERE id = NEW.fulfillment_request_id;
+            
+            RETURN NEW;
+        END IF;
+        
+        RETURN NULL;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER fulfillment_stats_trigger
+        AFTER INSERT OR UPDATE ON donor_confirmations
+        FOR EACH ROW EXECUTE FUNCTION update_fulfillment_stats();
+
+    -- Function to generate unique donor code
+    CREATE OR REPLACE FUNCTION generate_donor_code()
+    RETURNS VARCHAR(12) AS $$
+    DECLARE
+        code VARCHAR(12);
+        exists BOOLEAN;
+        random_suffix VARCHAR(2);
+    BEGIN
+        LOOP
+            -- Format: DN + YYMMDDHH + RR (12 chars: 2+8+2)
+            -- RR = random 2-digit number (00-99) for uniqueness within same hour
+            random_suffix := LPAD(FLOOR(RANDOM() * 100)::TEXT, 2, '0');
+            code := 'DN' || TO_CHAR(NOW(), 'YYMMDDHH24') || random_suffix;
+            SELECT EXISTS(SELECT 1 FROM donor_confirmations WHERE unique_code = code) INTO exists;
+            EXIT WHEN NOT exists;
+        END LOOP;
+        
+        RETURN code;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- Trigger to auto-generate unique code when donor confirms
+    CREATE OR REPLACE FUNCTION set_donor_confirmation_code()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        -- Generate code hanya saat status berubah menjadi 'confirmed'
+        IF NEW.status = 'confirmed' AND (OLD.status IS NULL OR OLD.status != 'confirmed') THEN
+            IF NEW.unique_code IS NULL OR NEW.unique_code = '' THEN
+                NEW.unique_code := generate_donor_code();
+            END IF;
+            
+            IF NEW.code_generated_at IS NULL THEN
+                NEW.code_generated_at := NOW();
+            END IF;
+            
+            IF NEW.code_expires_at IS NULL THEN
+                NEW.code_expires_at := NOW() + INTERVAL '7 days';
+            END IF;
+            
+            NEW.confirmed_at := NOW();
+        END IF;
+        
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER set_donor_code_trigger
+        BEFORE UPDATE ON donor_confirmations
+        FOR EACH ROW EXECUTE FUNCTION set_donor_confirmation_code();
+
+    -- ========================================
+    -- DONOR SCORING ALGORITHM FUNCTIONS
+    -- ========================================
+
+    -- Distance Score (50% weight)
+    CREATE OR REPLACE FUNCTION calculate_distance_score(
+        distance_km NUMERIC,
+        max_radius_km INTEGER DEFAULT 20
+    )
+    RETURNS NUMERIC AS $$
+    BEGIN
+        IF distance_km > max_radius_km THEN
+            RETURN 0;
+        END IF;
+        
+        RETURN ROUND(100 - ((distance_km / max_radius_km) * 100), 2);
+    END;
+    $$ LANGUAGE plpgsql IMMUTABLE;
+
+    -- History Score (35% weight)
+    CREATE OR REPLACE FUNCTION calculate_history_score(
+        total_donations INTEGER,
+        last_donation_date DATE,
+        total_rejections INTEGER
+    )
+    RETURNS NUMERIC AS $$
+    DECLARE
+        frequency_score NUMERIC;
+        recency_score NUMERIC;
+        rejection_penalty NUMERIC;
+        days_since_last NUMERIC;
+    BEGIN
+        frequency_score := LEAST(total_donations * 10, 50);
+        
+        IF last_donation_date IS NULL THEN
+            recency_score := 20;
+        ELSE
+            days_since_last := CURRENT_DATE - last_donation_date;
+            
+            IF days_since_last < 90 THEN
+                recency_score := 0;
+            ELSIF days_since_last BETWEEN 90 AND 180 THEN
+                recency_score := 40;
+            ELSIF days_since_last BETWEEN 181 AND 365 THEN
+                recency_score := 30;
+            ELSE
+                recency_score := 20;
             END IF;
         END IF;
         
-        IF OLD.attendance_confirmed = true AND NEW.attendance_confirmed = false THEN
-            UPDATE users 
-            SET total_campaigns_cancelled = total_campaigns_cancelled + 1
-            WHERE id = NEW.user_id;
-        END IF;
+        rejection_penalty := LEAST(total_rejections * 5, 10);
         
-        RETURN NEW;
-    END IF;
-    
-    IF TG_OP = 'DELETE' THEN
-        UPDATE users 
-        SET total_campaigns_registered = GREATEST(total_campaigns_registered - 1, 0)
-        WHERE id = OLD.user_id;
-        
-        IF OLD.donation_completed THEN
-            UPDATE users 
-            SET total_campaigns_completed = GREATEST(total_campaigns_completed - 1, 0)
-            WHERE id = OLD.user_id;
-        END IF;
-        
-        RETURN OLD;
-    END IF;
-    
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
+        RETURN ROUND(GREATEST(frequency_score + recency_score - rejection_penalty, 0), 2);
+    END;
+    $$ LANGUAGE plpgsql IMMUTABLE;
 
-CREATE TRIGGER user_campaign_stats_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON campaign_registrations
-    FOR EACH ROW EXECUTE FUNCTION update_user_campaign_stats();
-
--- Function to update donation statistics for users
-CREATE OR REPLACE FUNCTION update_user_donation_stats()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
-        IF NEW.status = 'completed' THEN
-            UPDATE users 
-            SET 
-                total_donations = (
-                    SELECT COUNT(*) FROM donations 
-                    WHERE donor_id = NEW.donor_id AND status = 'completed'
-                ),
-                last_donation_date = NEW.donation_date::DATE
-            WHERE id = NEW.donor_id;
-        END IF;
-        
-        IF NEW.status = 'rejected' AND (OLD.status IS NULL OR OLD.status != 'rejected') THEN
-            UPDATE users 
-            SET 
-                total_rejections = total_rejections + 1,
-                last_rejection_date = CURRENT_DATE,
-                last_rejection_reason = NEW.rejection_reason
-            WHERE id = NEW.donor_id;
-        END IF;
-        
-        RETURN NEW;
-    END IF;
-    
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER user_donation_stats_trigger
-    AFTER INSERT OR UPDATE ON donations
-    FOR EACH ROW EXECUTE FUNCTION update_user_donation_stats();
-
--- Function to update fulfillment statistics
-CREATE OR REPLACE FUNCTION update_fulfillment_stats()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
-        UPDATE fulfillment_requests 
-        SET 
-            confirmed_donors = (
-                SELECT COUNT(*) 
-                FROM donor_confirmations 
-                WHERE fulfillment_request_id = NEW.fulfillment_request_id 
-                AND status = 'confirmed'
-            ),
-            completed_donors = (
-                SELECT COUNT(*) 
-                FROM donor_confirmations 
-                WHERE fulfillment_request_id = NEW.fulfillment_request_id 
-                AND status = 'completed'
-            ),
-            quantity_collected = (
-                SELECT COALESCE(SUM(d.quantity), 0)
-                FROM donor_confirmations dc
-                JOIN donations d ON dc.donation_id = d.id
-                WHERE dc.fulfillment_request_id = NEW.fulfillment_request_id
-                AND d.status = 'completed'
-            )
-        WHERE id = NEW.fulfillment_request_id;
-        
-        RETURN NEW;
-    END IF;
-    
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER fulfillment_stats_trigger
-    AFTER INSERT OR UPDATE ON donor_confirmations
-    FOR EACH ROW EXECUTE FUNCTION update_fulfillment_stats();
-
--- Function to generate unique donor code
-CREATE OR REPLACE FUNCTION generate_donor_code()
-RETURNS VARCHAR(12) AS $$
-DECLARE
-    code VARCHAR(12);
-    exists BOOLEAN;
-    random_suffix VARCHAR(2);
-BEGIN
-    LOOP
-        -- Format: DN + YYMMDDHH + RR (12 chars: 2+8+2)
-        -- RR = random 2-digit number (00-99) for uniqueness within same hour
-        random_suffix := LPAD(FLOOR(RANDOM() * 100)::TEXT, 2, '0');
-        code := 'DN' || TO_CHAR(NOW(), 'YYMMDDHH24') || random_suffix;
-        SELECT EXISTS(SELECT 1 FROM donor_confirmations WHERE unique_code = code) INTO exists;
-        EXIT WHEN NOT exists;
-    END LOOP;
-    
-    RETURN code;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to auto-generate unique code when donor confirms
-CREATE OR REPLACE FUNCTION set_donor_confirmation_code()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Generate code hanya saat status berubah menjadi 'confirmed'
-    IF NEW.status = 'confirmed' AND (OLD.status IS NULL OR OLD.status != 'confirmed') THEN
-        IF NEW.unique_code IS NULL OR NEW.unique_code = '' THEN
-            NEW.unique_code := generate_donor_code();
-        END IF;
-        
-        IF NEW.code_generated_at IS NULL THEN
-            NEW.code_generated_at := NOW();
-        END IF;
-        
-        IF NEW.code_expires_at IS NULL THEN
-            NEW.code_expires_at := NOW() + INTERVAL '7 days';
-        END IF;
-        
-        NEW.confirmed_at := NOW();
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER set_donor_code_trigger
-    BEFORE UPDATE ON donor_confirmations
-    FOR EACH ROW EXECUTE FUNCTION set_donor_confirmation_code();
-
--- ========================================
--- DONOR SCORING ALGORITHM FUNCTIONS
--- ========================================
-
--- Distance Score (50% weight)
-CREATE OR REPLACE FUNCTION calculate_distance_score(
-    distance_km NUMERIC,
-    max_radius_km INTEGER DEFAULT 20
-)
-RETURNS NUMERIC AS $$
-BEGIN
-    IF distance_km > max_radius_km THEN
-        RETURN 0;
-    END IF;
-    
-    RETURN ROUND(100 - ((distance_km / max_radius_km) * 100), 2);
-END;
-$$ LANGUAGE plpgsql IMMUTABLE;
-
--- History Score (35% weight)
-CREATE OR REPLACE FUNCTION calculate_history_score(
-    total_donations INTEGER,
-    last_donation_date DATE,
-    total_rejections INTEGER
-)
-RETURNS NUMERIC AS $$
-DECLARE
-    frequency_score NUMERIC;
-    recency_score NUMERIC;
-    rejection_penalty NUMERIC;
-    days_since_last NUMERIC;
-BEGIN
-    frequency_score := LEAST(total_donations * 10, 50);
-    
-    IF last_donation_date IS NULL THEN
-        recency_score := 20;
-    ELSE
-        days_since_last := CURRENT_DATE - last_donation_date;
-        
-        IF days_since_last < 90 THEN
-            recency_score := 0;
-        ELSIF days_since_last BETWEEN 90 AND 180 THEN
-            recency_score := 40;
-        ELSIF days_since_last BETWEEN 181 AND 365 THEN
-            recency_score := 30;
-        ELSE
-            recency_score := 20;
-        END IF;
-    END IF;
-    
-    rejection_penalty := LEAST(total_rejections * 5, 10);
-    
-    RETURN ROUND(GREATEST(frequency_score + recency_score - rejection_penalty, 0), 2);
-END;
-$$ LANGUAGE plpgsql IMMUTABLE;
-
--- Commitment Score (15% weight)
-CREATE OR REPLACE FUNCTION calculate_commitment_score(
-    total_registered INTEGER,
-    total_completed INTEGER,
-    total_cancelled INTEGER
-)
-RETURNS NUMERIC AS $$
-DECLARE
-    completion_score NUMERIC;
-    cancellation_penalty NUMERIC;
-BEGIN
-    IF total_registered = 0 THEN
-        RETURN 50;
-    END IF;
-    
-    completion_score := (total_completed::NUMERIC / total_registered) * 80;
-    cancellation_penalty := LEAST(total_cancelled * 5, 20);
-    
-    RETURN ROUND(GREATEST(completion_score - cancellation_penalty, 0), 2);
-END;
-$$ LANGUAGE plpgsql IMMUTABLE;
-
--- Main Donor Matching Algorithm
-CREATE OR REPLACE FUNCTION find_eligible_donors_simplified(
-    p_blood_type blood_type,
-    p_pmi_location GEOGRAPHY,
-    p_radius_km INTEGER DEFAULT 20,
-    p_urgency_level priority_level DEFAULT 'medium',
-    p_min_score NUMERIC DEFAULT 40.0,
-    p_limit INTEGER DEFAULT 100
-)
-RETURNS TABLE (
-    donor_id UUID,
-    full_name VARCHAR,
-    phone_number VARCHAR,
-    blood_type blood_type,
-    age INTEGER,
-    distance_km NUMERIC,
-    distance_score NUMERIC,
-    history_score NUMERIC,
-    commitment_score NUMERIC,
-    weighted_distance NUMERIC,
-    weighted_history NUMERIC,
-    weighted_commitment NUMERIC,
-    final_score NUMERIC,
-    recommendation_rank INTEGER,
-    eligible BOOLEAN,
-    last_donation_date DATE,
-    total_donations INTEGER,
-    completion_rate NUMERIC,
-    priority_flag BOOLEAN
-) AS $$
-DECLARE
-    weight_distance CONSTANT NUMERIC := 0.50;
-    weight_history CONSTANT NUMERIC := 0.35;
-    weight_commitment CONSTANT NUMERIC := 0.15;
-BEGIN
-    RETURN QUERY
-    WITH donor_data AS (
-        SELECT 
-            u.id,
-            u.full_name,
-            u.phone_number,
-            u.blood_type,
-            EXTRACT(YEAR FROM AGE(CURRENT_DATE, u.date_of_birth))::INTEGER AS age,
-            u.last_donation_date,
-            u.total_donations,
-            u.total_rejections,
-            u.total_campaigns_registered,
-            u.total_campaigns_completed,
-            u.total_campaigns_cancelled,
-            u.completion_rate,
-            ROUND(CAST(ST_Distance(u.location, p_pmi_location) / 1000 AS NUMERIC), 2) AS dist_km
-        FROM users u
-        WHERE 
-            u.blood_type = p_blood_type
-            AND u.active = true
-            AND u.phone_verified = true
-            AND u.location IS NOT NULL
-            AND ST_DWithin(u.location, p_pmi_location, p_radius_km * 1000)
-            AND (
-                u.last_donation_date IS NULL 
-                OR u.last_donation_date < (CURRENT_DATE - INTERVAL '90 days')
-            )
-    ),
-    scored_donors AS (
-        SELECT 
-            dd.*,
-            calculate_distance_score(dd.dist_km, p_radius_km) AS dist_score,
-            calculate_history_score(
-                COALESCE(dd.total_donations, 0),
-                dd.last_donation_date,
-                COALESCE(dd.total_rejections, 0)
-            ) AS hist_score,
-            calculate_commitment_score(
-                COALESCE(dd.total_campaigns_registered, 0),
-                COALESCE(dd.total_campaigns_completed, 0),
-                COALESCE(dd.total_campaigns_cancelled, 0)
-            ) AS commit_score
-        FROM donor_data dd
-    ),
-    weighted_donors AS (
-        SELECT 
-            sd.*,
-            (sd.dist_score * weight_distance) AS w_distance,
-            (sd.hist_score * weight_history) AS w_history,
-            (sd.commit_score * weight_commitment) AS w_commitment,
-            ROUND(
-                (sd.dist_score * weight_distance) +
-                (sd.hist_score * weight_history) +
-                (sd.commit_score * weight_commitment),
-                2
-            ) AS total_score,
-            CASE 
-                WHEN p_urgency_level = 'critical' AND sd.dist_km <= 5 AND sd.total_donations >= 3 THEN true
-                WHEN p_urgency_level = 'high' AND sd.dist_km <= 10 AND sd.total_donations >= 2 THEN true
-                ELSE false
-            END AS is_priority
-        FROM scored_donors sd
+    -- Commitment Score (15% weight)
+    CREATE OR REPLACE FUNCTION calculate_commitment_score(
+        total_registered INTEGER,
+        total_completed INTEGER,
+        total_cancelled INTEGER
     )
+    RETURNS NUMERIC AS $$
+    DECLARE
+        completion_score NUMERIC;
+        cancellation_penalty NUMERIC;
+    BEGIN
+        IF total_registered = 0 THEN
+            RETURN 50;
+        END IF;
+        
+        completion_score := (total_completed::NUMERIC / total_registered) * 80;
+        cancellation_penalty := LEAST(total_cancelled * 5, 20);
+        
+        RETURN ROUND(GREATEST(completion_score - cancellation_penalty, 0), 2);
+    END;
+    $$ LANGUAGE plpgsql IMMUTABLE;
+
+    -- Main Donor Matching Algorithm
+    CREATE OR REPLACE FUNCTION find_eligible_donors_simplified(
+        p_blood_type blood_type,
+        p_pmi_location GEOGRAPHY,
+        p_radius_km INTEGER DEFAULT 20,
+        p_urgency_level priority_level DEFAULT 'medium',
+        p_min_score NUMERIC DEFAULT 40.0,
+        p_limit INTEGER DEFAULT 100
+    )
+    RETURNS TABLE (
+        donor_id UUID,
+        full_name VARCHAR,
+        phone_number VARCHAR,
+        blood_type blood_type,
+        age INTEGER,
+        distance_km NUMERIC,
+        distance_score NUMERIC,
+        history_score NUMERIC,
+        commitment_score NUMERIC,
+        weighted_distance NUMERIC,
+        weighted_history NUMERIC,
+        weighted_commitment NUMERIC,
+        final_score NUMERIC,
+        recommendation_rank INTEGER,
+        eligible BOOLEAN,
+        last_donation_date DATE,
+        total_donations INTEGER,
+        completion_rate NUMERIC,
+        priority_flag BOOLEAN
+    ) AS $$
+    DECLARE
+        weight_distance CONSTANT NUMERIC := 0.50;
+        weight_history CONSTANT NUMERIC := 0.35;
+        weight_commitment CONSTANT NUMERIC := 0.15;
+    BEGIN
+        RETURN QUERY
+        WITH donor_data AS (
+            SELECT 
+                u.id,
+                u.full_name,
+                u.phone_number,
+                u.blood_type,
+                EXTRACT(YEAR FROM AGE(CURRENT_DATE, u.date_of_birth))::INTEGER AS age,
+                u.last_donation_date,
+                u.total_donations,
+                u.total_rejections,
+                u.total_campaigns_registered,
+                u.total_campaigns_completed,
+                u.total_campaigns_cancelled,
+                u.completion_rate,
+                ROUND(CAST(ST_Distance(u.location, p_pmi_location) / 1000 AS NUMERIC), 2) AS dist_km
+            FROM users u
+            WHERE 
+                u.blood_type = p_blood_type
+                AND u.active = true
+                AND u.phone_verified = true
+                AND u.location IS NOT NULL
+                AND ST_DWithin(u.location, p_pmi_location, p_radius_km * 1000)
+                -- ✅ Check notifications enabled
+                AND u.notifications_enabled = true
+                -- Check 90-day post-donation period
+                AND (
+                    u.last_donation_date IS NULL 
+                    OR u.last_donation_date < (CURRENT_DATE - INTERVAL '90 days')
+                )
+        ),
+        scored_donors AS (
+            SELECT 
+                dd.*,
+                calculate_distance_score(dd.dist_km, p_radius_km) AS dist_score,
+                calculate_history_score(
+                    COALESCE(dd.total_donations, 0),
+                    dd.last_donation_date,
+                    COALESCE(dd.total_rejections, 0)
+                ) AS hist_score,
+                calculate_commitment_score(
+                    COALESCE(dd.total_campaigns_registered, 0),
+                    COALESCE(dd.total_campaigns_completed, 0),
+                    COALESCE(dd.total_campaigns_cancelled, 0)
+                ) AS commit_score
+            FROM donor_data dd
+        ),
+        weighted_donors AS (
+            SELECT 
+                sd.*,
+                (sd.dist_score * weight_distance) AS w_distance,
+                (sd.hist_score * weight_history) AS w_history,
+                (sd.commit_score * weight_commitment) AS w_commitment,
+                ROUND(
+                    (sd.dist_score * weight_distance) +
+                    (sd.hist_score * weight_history) +
+                    (sd.commit_score * weight_commitment),
+                    2
+                ) AS total_score,
+                CASE 
+                    WHEN p_urgency_level = 'critical' AND sd.dist_km <= 5 AND sd.total_donations >= 3 THEN true
+                    WHEN p_urgency_level = 'high' AND sd.dist_km <= 10 AND sd.total_donations >= 2 THEN true
+                    ELSE false
+                END AS is_priority
+            FROM scored_donors sd
+        )
+        SELECT 
+            wd.id,
+            wd.full_name,
+            wd.phone_number,
+            wd.blood_type,
+            wd.age,
+            wd.dist_km,
+            wd.dist_score,
+            wd.hist_score,
+            wd.commit_score,
+            wd.w_distance,
+            wd.w_history,
+            wd.w_commitment,
+            wd.total_score,
+            ROW_NUMBER() OVER (ORDER BY wd.is_priority DESC, wd.total_score DESC, wd.dist_km ASC)::INTEGER,
+            true AS eligible,
+            wd.last_donation_date,
+            COALESCE(wd.total_donations, 0)::INTEGER,
+            wd.completion_rate,
+            wd.is_priority
+        FROM weighted_donors wd
+        WHERE wd.total_score >= p_min_score
+        ORDER BY wd.is_priority DESC, wd.total_score DESC, wd.dist_km ASC
+        LIMIT p_limit;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- Analytics View
+    CREATE OR REPLACE VIEW donor_score_analytics AS
     SELECT 
-        wd.id,
-        wd.full_name,
-        wd.phone_number,
-        wd.blood_type,
-        wd.age,
-        wd.dist_km,
-        wd.dist_score,
-        wd.hist_score,
-        wd.commit_score,
-        wd.w_distance,
-        wd.w_history,
-        wd.w_commitment,
-        wd.total_score,
-        ROW_NUMBER() OVER (ORDER BY wd.is_priority DESC, wd.total_score DESC, wd.dist_km ASC)::INTEGER,
-        true AS eligible,
-        wd.last_donation_date,
-        COALESCE(wd.total_donations, 0)::INTEGER,
-        wd.completion_rate,
-        wd.is_priority
-    FROM weighted_donors wd
-    WHERE wd.total_score >= p_min_score
-    ORDER BY wd.is_priority DESC, wd.total_score DESC, wd.dist_km ASC
-    LIMIT p_limit;
-END;
-$$ LANGUAGE plpgsql;
+        u.blood_type,
+        COUNT(*) AS total_donors,
+        ROUND(AVG(
+            (calculate_distance_score(5, 20) * 0.50) +
+            (calculate_history_score(u.total_donations, u.last_donation_date, u.total_rejections) * 0.35) +
+            (calculate_commitment_score(u.total_campaigns_registered, u.total_campaigns_completed, u.total_campaigns_cancelled) * 0.15)
+        ), 2) AS avg_score,
+        COUNT(CASE WHEN u.total_donations >= 5 THEN 1 END) AS experienced_donors,
+        COUNT(CASE WHEN u.completion_rate >= 80 THEN 1 END) AS reliable_donors,
+        COUNT(CASE WHEN u.last_donation_date < CURRENT_DATE - INTERVAL '90 days' OR u.last_donation_date IS NULL THEN 1 END) AS eligible_donors
+    FROM users u
+    WHERE u.active = true AND u.phone_verified = true
+    GROUP BY u.blood_type;
 
--- Analytics View
-CREATE OR REPLACE VIEW donor_score_analytics AS
-SELECT 
-    u.blood_type,
-    COUNT(*) AS total_donors,
-    ROUND(AVG(
-        (calculate_distance_score(5, 20) * 0.50) +
-        (calculate_history_score(u.total_donations, u.last_donation_date, u.total_rejections) * 0.35) +
-        (calculate_commitment_score(u.total_campaigns_registered, u.total_campaigns_completed, u.total_campaigns_cancelled) * 0.15)
-    ), 2) AS avg_score,
-    COUNT(CASE WHEN u.total_donations >= 5 THEN 1 END) AS experienced_donors,
-    COUNT(CASE WHEN u.completion_rate >= 80 THEN 1 END) AS reliable_donors,
-    COUNT(CASE WHEN u.last_donation_date < CURRENT_DATE - INTERVAL '90 days' OR u.last_donation_date IS NULL THEN 1 END) AS eligible_donors
-FROM users u
-WHERE u.active = true AND u.phone_verified = true
-GROUP BY u.blood_type;
+    -- Comments for documentation
+    COMMENT ON TABLE fulfillment_requests IS 'Tracks blood request fulfillment through donor campaigns';
+    COMMENT ON TABLE donor_confirmations IS 'Tracks individual donor confirmations and verifications';
+    COMMENT ON FUNCTION calculate_distance_score IS 'Scores based on proximity to PMI (0-100). Weight: 50%';
+    COMMENT ON FUNCTION calculate_history_score IS 'Scores based on donation frequency, recency, and rejections (0-100). Weight: 35%';
+    COMMENT ON FUNCTION calculate_commitment_score IS 'Scores based on campaign completion rate (0-100). Weight: 15%';
+    COMMENT ON FUNCTION find_eligible_donors_simplified IS 'Main algorithm: finds and ranks donors by distance (50%), history (35%), and commitment (15%)';
+    COMMENT ON VIEW donor_score_analytics IS 'Analytics view for donor scoring distribution by blood type';
 
--- Comments for documentation
-COMMENT ON TABLE fulfillment_requests IS 'Tracks blood request fulfillment through donor campaigns';
-COMMENT ON TABLE donor_confirmations IS 'Tracks individual donor confirmations and verifications';
-COMMENT ON FUNCTION calculate_distance_score IS 'Scores based on proximity to PMI (0-100). Weight: 50%';
-COMMENT ON FUNCTION calculate_history_score IS 'Scores based on donation frequency, recency, and rejections (0-100). Weight: 35%';
-COMMENT ON FUNCTION calculate_commitment_score IS 'Scores based on campaign completion rate (0-100). Weight: 15%';
-COMMENT ON FUNCTION find_eligible_donors_simplified IS 'Main algorithm: finds and ranks donors by distance (50%), history (35%), and commitment (15%)';
-COMMENT ON VIEW donor_score_analytics IS 'Analytics view for donor scoring distribution by blood type';
+    -- ========================================
+    -- INITIAL SYSTEM SETTINGS
+    -- ========================================
 
--- ========================================
--- INITIAL SYSTEM SETTINGS
--- ========================================
+    INSERT INTO system_settings (key, value, description, category, is_public) VALUES
+    ('app_name', '"DarahTanyoe"', 'Application name', 'general', true),
+    ('app_version', '"1.0.0"', 'Application version', 'general', true),
+    ('maintenance_mode', 'false', 'Enable maintenance mode', 'general', false),
+    ('blood_expiry_days', '35', 'Default blood expiry period in days', 'blood_management', false),
+    ('reservation_expiry_hours', '24', 'Blood reservation expiry in hours', 'blood_management', false),
+    ('notification_retention_days', '30', 'Keep notifications for N days', 'notifications', false),
+    ('max_donation_per_month', '1', 'Maximum donations per donor per month', 'donations', false),
+    ('min_donor_age', '17', 'Minimum age for blood donation', 'donations', true),
+    ('max_donor_age', '65', 'Maximum age for blood donation', 'donations', true),
+    ('contact_email', '"support@darahtanyoe.com"', 'Contact email address', 'contact', true),
+    ('contact_phone', '"+6281234567890"', 'Contact phone number', 'contact', true)
+    ON CONFLICT (key) DO NOTHING;
 
-INSERT INTO system_settings (key, value, description, category, is_public) VALUES
-('app_name', '"DarahTanyoe"', 'Application name', 'general', true),
-('app_version', '"1.0.0"', 'Application version', 'general', true),
-('maintenance_mode', 'false', 'Enable maintenance mode', 'general', false),
-('blood_expiry_days', '35', 'Default blood expiry period in days', 'blood_management', false),
-('reservation_expiry_hours', '24', 'Blood reservation expiry in hours', 'blood_management', false),
-('notification_retention_days', '30', 'Keep notifications for N days', 'notifications', false),
-('max_donation_per_month', '1', 'Maximum donations per donor per month', 'donations', false),
-('min_donor_age', '17', 'Minimum age for blood donation', 'donations', true),
-('max_donor_age', '65', 'Maximum age for blood donation', 'donations', true),
-('contact_email', '"support@darahtanyoe.com"', 'Contact email address', 'contact', true),
-('contact_phone', '"+6281234567890"', 'Contact phone number', 'contact', true)
-ON CONFLICT (key) DO NOTHING;
+    -- ========================================
+    -- INITIALIZE USER STATISTICS
+    -- ========================================
 
--- ========================================
--- SAMPLE DATA FOR TESTING
--- ========================================
+    -- Update campaign statistics for existing users
+    UPDATE users u
+    SET 
+        total_campaigns_registered = (
+            SELECT COUNT(*) FROM campaign_registrations WHERE user_id = u.id
+        ),
+        total_campaigns_completed = (
+            SELECT COUNT(*) FROM campaign_registrations 
+            WHERE user_id = u.id AND donation_completed = true
+        ),
+        total_campaigns_cancelled = (
+            SELECT COUNT(*) FROM campaign_registrations 
+            WHERE user_id = u.id AND attendance_confirmed = false
+        );
 
--- Insert sample institution (password: password123)
--- Hashed with bcrypt: $2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/FwGK2pXn9HF3Bv8mq
-INSERT INTO institutions (
-  institution_type, email, password, institution_name, 
-  address, location, kota, provinsi, phone_number, verified, active
-) VALUES (
-  'hospital', 
-  'admin@rstest.com', 
-  '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/FwGK2pXn9HF3Bv8mq',
-  'RS Test Jakarta',
-  'Jl. Test No. 123, Jakarta Pusat',
-  ST_SetSRID(ST_MakePoint(106.8456, -6.2088), 4326)::geography, -- Monas area
-  'Jakarta',
-  'DKI Jakarta',
-  '081234567890',
-  true,
-  true
-) ON CONFLICT (email) DO NOTHING;
+    -- Update donation statistics
+    UPDATE users u
+    SET 
+        total_donations = (
+            SELECT COUNT(*) FROM donations 
+            WHERE donor_id = u.id AND status = 'completed'
+        ),
+        total_rejections = (
+            SELECT COUNT(*) FROM donations 
+            WHERE donor_id = u.id AND status = 'rejected'
+        ),
+        last_rejection_date = (
+            SELECT MAX(donation_date)::DATE FROM donations 
+            WHERE donor_id = u.id AND status = 'rejected'
+        ),
+        last_rejection_reason = (
+            SELECT rejection_reason FROM donations 
+            WHERE donor_id = u.id AND status = 'rejected'
+            ORDER BY donation_date DESC LIMIT 1
+        );
 
--- Insert sample PMI
-INSERT INTO institutions (
-  institution_type, email, password, institution_name, 
-  address, location, kota, provinsi, phone_number, verified, active
-) VALUES (
-  'pmi', 
-  'admin@pmitest.com', 
-  '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/FwGK2pXn9HF3Bv8mq',
-  'PMI DKI Jakarta',
-  'Jl. Gatot Subroto No. 96, Jakarta Selatan',
-  ST_SetSRID(ST_MakePoint(106.8105, -6.2327), 4326)::geography, -- PMI DKI actual location
-  'Jakarta',
-  'DKI Jakarta',
-  '081234567891',
-  true,
-  true
-) ON CONFLICT (email) DO NOTHING;
+    -- ========================================
+    -- ROW LEVEL SECURITY (RLS) POLICIES
+    -- ========================================
 
--- Insert sample donor
-INSERT INTO users (
-  email, phone_number, full_name, address, location, date_of_birth, blood_type, 
-  active, phone_verified
-) VALUES (
-  'donor@test.com',
-  '628123456789',
-  'Donor Test',
-  'Jl. Donor Test No. 1, Jakarta',
-  ST_SetSRID(ST_MakePoint(106.8270, -6.2215), 4326)::geography, -- ~3km from PMI
-  '2001-01-15', -- Assuming age 25
-  'O+',
-  true,
-  true
-) ON CONFLICT (phone_number) DO NOTHING;
+    -- RLS DISABLED FOR DEVELOPMENT - Comment out if needed for production
+    -- All tables are publicly accessible via authenticated role
 
--- Insert sample blood stock
-INSERT INTO blood_stock (
-  institution_id, blood_type, quantity, unit_type, expiry_date, 
-  batch_number, collection_date, component_type
-) VALUES 
-(
-  (SELECT id FROM institutions WHERE email = 'admin@pmitest.com'),
-  'O+', 10, 'kantong', CURRENT_DATE + INTERVAL '30 days',
-  'BATCH-001-' || TO_CHAR(NOW(), 'YYYYMMDD'), CURRENT_DATE, 'whole_blood'
-),
-(
-  (SELECT id FROM institutions WHERE email = 'admin@pmitest.com'),
-  'A+', 5, 'kantong', CURRENT_DATE + INTERVAL '25 days',
-  'BATCH-002-' || TO_CHAR(NOW(), 'YYYYMMDD'), CURRENT_DATE, 'whole_blood'
-) ON CONFLICT (batch_number) DO NOTHING;
+    -- Uncomment below section for production RLS setup:
+    /*
+    -- Enable RLS on all tables
+    ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE institutions ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE otp_records ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE donations ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE blood_stock ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE stock_ledger ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE blood_stock_history ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE blood_requests ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE pickup_schedules ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE blood_campaigns ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE campaign_registrations ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE push_tokens ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE fulfillment_requests ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE donor_confirmations ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE otp_sessions ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE monthly_reports ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE system_settings ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
--- ========================================
--- INITIALIZE USER STATISTICS
--- ========================================
+    -- CREATE POLICIES HERE...
+    */
 
--- Update campaign statistics for existing users
-UPDATE users u
-SET 
-    total_campaigns_registered = (
-        SELECT COUNT(*) FROM campaign_registrations WHERE user_id = u.id
-    ),
-    total_campaigns_completed = (
-        SELECT COUNT(*) FROM campaign_registrations 
-        WHERE user_id = u.id AND donation_completed = true
-    ),
-    total_campaigns_cancelled = (
-        SELECT COUNT(*) FROM campaign_registrations 
-        WHERE user_id = u.id AND attendance_confirmed = false
-    );
-
--- Update donation statistics
-UPDATE users u
-SET 
-    total_donations = (
-        SELECT COUNT(*) FROM donations 
-        WHERE donor_id = u.id AND status = 'completed'
-    ),
-    total_rejections = (
-        SELECT COUNT(*) FROM donations 
-        WHERE donor_id = u.id AND status = 'rejected'
-    ),
-    last_rejection_date = (
-        SELECT MAX(donation_date)::DATE FROM donations 
-        WHERE donor_id = u.id AND status = 'rejected'
-    ),
-    last_rejection_reason = (
-        SELECT rejection_reason FROM donations 
-        WHERE donor_id = u.id AND status = 'rejected'
-        ORDER BY donation_date DESC LIMIT 1
-    );
-
--- Grant permissions (adjust as needed)
--- GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
--- GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+    -- Grant permissions for development
+    -- GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+    -- GRANT ALL ON ALL TABLES IN SCHEMA public TO anon;
+    -- GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+    -- GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon;
+    -- GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated;
+    -- GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon;
