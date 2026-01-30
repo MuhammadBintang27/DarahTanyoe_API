@@ -12,6 +12,7 @@ import pickupScheduleRouter from './routes/pickupScheduleRouter.js';
 import bloodStockHistoryRouter from './routes/bloodStockHistoryRouter.js';
 import fulfillmentRouter from './routes/fulfillmentRouter.js';
 import campaignRouter from './routes/campaignRouter.js';
+import allocationRouter from './routes/allocationRouter.js';
 
 dotenv.config();
 
@@ -47,6 +48,7 @@ app.use('/pickup-schedules', pickupScheduleRouter);
 app.use('/blood-stock-history', bloodStockHistoryRouter);
 app.use('/fulfillment', fulfillmentRouter);
 app.use('/campaigns', campaignRouter);
+app.use('/allocation', allocationRouter);
 
 // Middleware untuk logging request
 app.use((req, res, next) => {

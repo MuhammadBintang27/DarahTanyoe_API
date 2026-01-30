@@ -89,6 +89,15 @@
     'failed'          -- Donasi gagal
     );
 
+    -- ✅ NEW: Blood Allocation Status Enum (Opsi 2)
+    CREATE TYPE allocation_status AS ENUM (
+        'allocated',      -- Darah sudah dialokasikan untuk request
+        'partial_pickup', -- Sebagian sudah diambil, sisa pending
+        'picked_up',      -- Semua darah sudah diambil
+        'expired',        -- Alokasi expired
+        'cancelled'       -- Alokasi dibatalkan
+    );
+
     -- ========================================
     -- DROP EXISTING TABLES (IF ANY)
     -- ========================================
@@ -96,6 +105,7 @@
     DROP TABLE IF EXISTS audit_logs CASCADE;
     DROP TABLE IF EXISTS monthly_reports CASCADE;
     DROP TABLE IF EXISTS system_settings CASCADE;
+    DROP TABLE IF EXISTS blood_allocation CASCADE;
     DROP TABLE IF EXISTS otp_sessions CASCADE;
     DROP TABLE IF EXISTS refresh_tokens CASCADE;
     DROP TABLE IF EXISTS push_tokens CASCADE;
@@ -296,6 +306,48 @@
     notes TEXT,
     created_by UUID REFERENCES institutions(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- ========================================
+    -- BLOOD ALLOCATION SYSTEM (Opsi 2)
+    -- ========================================
+
+    -- Blood Allocation Table (NEW)
+    -- Tracks darah allocation dari fulfillment ke blood requests
+    -- Memastikan darah dari fulfillment A hanya dipakai untuk request A
+    CREATE TABLE blood_allocation (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- References
+    blood_request_id UUID NOT NULL REFERENCES blood_requests(id) ON DELETE CASCADE,
+    fulfillment_request_id UUID REFERENCES fulfillment_requests(id) ON DELETE SET NULL,
+    blood_stock_id UUID NOT NULL REFERENCES blood_stock(id) ON DELETE CASCADE,
+    
+    -- Allocation tracking
+    quantity_allocated INTEGER NOT NULL CHECK (quantity_allocated > 0),
+    quantity_picked_up INTEGER DEFAULT 0 CHECK (quantity_picked_up >= 0),
+    status allocation_status DEFAULT 'allocated',
+    
+    -- Priority & notes
+    priority INTEGER DEFAULT 0,
+    notes TEXT,
+    
+    -- Timestamps
+    allocated_at TIMESTAMPTZ DEFAULT NOW(),
+    pickup_scheduled_at TIMESTAMPTZ,
+    picked_up_at TIMESTAMPTZ,
+    expired_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    cancellation_reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    -- Constraints
+    CHECK (quantity_picked_up <= quantity_allocated),
+    CHECK (
+        (fulfillment_request_id IS NOT NULL) OR 
+        (fulfillment_request_id IS NULL)  -- Allow general allocation without fulfillment
+    )
     );
 
     -- ========================================
@@ -708,6 +760,14 @@
     CREATE INDEX idx_donor_confirmations_verified ON donor_confirmations(code_verified);
     CREATE INDEX idx_donor_confirmations_distance ON donor_confirmations(distance_km);
 
+    -- Blood allocation indexes (NEW)
+    CREATE INDEX idx_blood_allocation_request ON blood_allocation(blood_request_id);
+    CREATE INDEX idx_blood_allocation_fulfillment ON blood_allocation(fulfillment_request_id);
+    CREATE INDEX idx_blood_allocation_stock ON blood_allocation(blood_stock_id);
+    CREATE INDEX idx_blood_allocation_status ON blood_allocation(status);
+    CREATE INDEX idx_blood_allocation_allocated_at ON blood_allocation(allocated_at DESC);
+    CREATE INDEX idx_blood_allocation_picked_up_at ON blood_allocation(picked_up_at DESC);
+
     -- ========================================
     -- TRIGGERS FOR AUTOMATION
     -- ========================================
@@ -731,30 +791,220 @@
     CREATE TRIGGER update_blood_campaigns_updated_at BEFORE UPDATE ON blood_campaigns FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
     CREATE TRIGGER update_fulfillment_requests_updated_at BEFORE UPDATE ON fulfillment_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
     CREATE TRIGGER update_donor_confirmations_updated_at BEFORE UPDATE ON donor_confirmations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    CREATE TRIGGER update_blood_allocation_updated_at BEFORE UPDATE ON blood_allocation FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-    -- Function to log stock mutations
-    CREATE OR REPLACE FUNCTION log_stock_mutation()
+    -- Function to log stock mutations on INSERT (donation masuk)
+    CREATE OR REPLACE FUNCTION log_stock_mutation_on_insert()
     RETURNS TRIGGER AS $$
     BEGIN
-    INSERT INTO stock_ledger (
-        stock_id, mutation_type, quantity, related_donation, notes
-    ) VALUES (
-        NEW.id,
-        'MASUK_DONASI',
-        NEW.quantity,
-        NEW.donation_id,
-        'Auto ledger: stok masuk dari donasi'
-    );
-    RETURN NEW;
+        INSERT INTO stock_ledger (
+            stock_id, mutation_type, quantity, related_donation, notes
+        ) VALUES (
+            NEW.id,
+            'MASUK_DONASI',
+            NEW.quantity,
+            NEW.donation_id,
+            'Auto ledger: stok masuk dari donasi'
+        );
+        RETURN NEW;
     END;
     $$ LANGUAGE plpgsql;
 
     CREATE TRIGGER blood_stock_insert_ledger
     AFTER INSERT ON blood_stock
-    FOR EACH ROW EXECUTE FUNCTION log_stock_mutation();
+    FOR EACH ROW EXECUTE FUNCTION log_stock_mutation_on_insert();
 
-    -- Function to update campaign statistics
-    CREATE OR REPLACE FUNCTION update_campaign_stats()
+    -- Function to log stock mutations on UPDATE (status changes)
+    -- Trigger ini akan catch saat status berubah ke 'used' atau 'expired'
+    CREATE OR REPLACE FUNCTION log_stock_mutation_on_update()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        -- Log saat status berubah ke 'used'
+        IF NEW.status = 'used'::stock_status AND OLD.status != 'used'::stock_status THEN
+            INSERT INTO stock_ledger (
+                stock_id, mutation_type, quantity, notes
+            ) VALUES (
+                NEW.id,
+                'PENGGUNAAN_STOK',
+                NEW.quantity,
+                'Auto ledger: status berubah ke used. Untuk: ' || COALESCE(NEW.used_for, 'tidak ada keterangan')
+            );
+        END IF;
+
+        -- Log saat status berubah ke 'expired'
+        IF NEW.status = 'expired'::stock_status AND OLD.status != 'expired'::stock_status THEN
+            INSERT INTO stock_ledger (
+                stock_id, mutation_type, quantity, notes
+            ) VALUES (
+                NEW.id,
+                'KADALUARSA',
+                NEW.quantity,
+                'Auto ledger: stok kadaluarsa pada ' || COALESCE(TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD'), 'tidak ada tanggal')
+            );
+        END IF;
+
+        -- Log saat quantity berubah (untuk tracking partial usage)
+        IF NEW.quantity < OLD.quantity THEN
+            INSERT INTO stock_ledger (
+                stock_id, mutation_type, quantity, notes
+            ) VALUES (
+                NEW.id,
+                'PENGURANGAN_QUANTITY',
+                OLD.quantity - NEW.quantity,
+                'Auto ledger: quantity berkurang dari ' || OLD.quantity || ' menjadi ' || NEW.quantity
+            );
+        END IF;
+
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER blood_stock_update_ledger
+    AFTER UPDATE ON blood_stock
+    FOR EACH ROW EXECUTE FUNCTION log_stock_mutation_on_update();
+
+    -- ========================================
+    -- BLOOD ALLOCATION FUNCTIONS (NEW)
+    -- ========================================
+
+    -- NOTE: auto_allocate_blood_on_donation() function and trigger removed
+    -- Allocation is now created directly in fulfillmentController.js completeDonation() function
+    -- This ensures proper sequencing: donation → blood_stock → allocation
+    -- See: supabase/migrations/002_add_blood_allocation_system.sql for allocation support functions
+
+    -- Function: Get available blood for a specific request (considering allocations)
+    CREATE OR REPLACE FUNCTION get_available_blood_for_request(
+        p_request_id UUID,
+        p_blood_type blood_type
+    )
+    RETURNS TABLE (
+        stock_id UUID,
+        quantity_available INTEGER,
+        fulfillment_id UUID,
+        batch_number VARCHAR,
+        expiry_date DATE
+    ) AS $$
+    BEGIN
+        RETURN QUERY
+        SELECT 
+            ba.blood_stock_id,
+            ba.quantity_allocated - ba.quantity_picked_up AS quantity_available,
+            ba.fulfillment_request_id,
+            bs.batch_number,
+            bs.expiry_date
+        FROM blood_allocation ba
+        JOIN blood_stock bs ON ba.blood_stock_id = bs.id
+        WHERE 
+            ba.blood_request_id = p_request_id
+            AND bs.blood_type = p_blood_type
+            AND ba.status IN ('allocated'::allocation_status, 'partial_pickup'::allocation_status)
+            AND bs.status = 'available'::stock_status
+            AND bs.expiry_date >= CURRENT_DATE
+        ORDER BY ba.priority DESC, ba.allocated_at ASC;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- Function: Get pending pickup for a request
+    CREATE OR REPLACE FUNCTION get_pending_pickup_for_request(p_request_id UUID)
+    RETURNS TABLE (
+        allocation_id UUID,
+        quantity_pending INTEGER,
+        fulfillment_id UUID,
+        batch_number VARCHAR
+    ) AS $$
+    BEGIN
+        RETURN QUERY
+        SELECT 
+            ba.id,
+            ba.quantity_allocated - ba.quantity_picked_up,
+            ba.fulfillment_request_id,
+            bs.batch_number
+        FROM blood_allocation ba
+        JOIN blood_stock bs ON ba.blood_stock_id = bs.id
+        WHERE 
+            ba.blood_request_id = p_request_id
+            AND ba.status IN ('allocated'::allocation_status, 'partial_pickup'::allocation_status)
+            AND (ba.quantity_allocated - ba.quantity_picked_up) > 0
+        ORDER BY ba.allocated_at ASC;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- Function: Complete pickup and update allocation
+    CREATE OR REPLACE FUNCTION complete_allocation_pickup(
+        p_allocation_id UUID,
+        p_quantity_picked_up INTEGER
+    )
+    RETURNS BOOLEAN AS $$
+    DECLARE
+        current_allocation RECORD;
+        new_status allocation_status;
+    BEGIN
+        -- Get current allocation
+        SELECT * INTO current_allocation
+        FROM blood_allocation
+        WHERE id = p_allocation_id;
+        
+        IF current_allocation IS NULL THEN
+            RAISE EXCEPTION 'Allocation not found: %', p_allocation_id;
+        END IF;
+        
+        -- Validate quantity
+        IF p_quantity_picked_up > (current_allocation.quantity_allocated - current_allocation.quantity_picked_up) THEN
+            RAISE EXCEPTION 'Quantity picked up exceeds available: % > %', 
+                p_quantity_picked_up, 
+                (current_allocation.quantity_allocated - current_allocation.quantity_picked_up);
+        END IF;
+        
+        -- Determine new status
+        IF (current_allocation.quantity_picked_up + p_quantity_picked_up) >= current_allocation.quantity_allocated THEN
+            new_status := 'picked_up'::allocation_status;
+        ELSE
+            new_status := 'partial_pickup'::allocation_status;
+        END IF;
+        
+        -- Update allocation
+        UPDATE blood_allocation
+        SET 
+            quantity_picked_up = quantity_picked_up + p_quantity_picked_up,
+            status = new_status,
+            picked_up_at = CASE 
+                WHEN new_status = 'picked_up'::allocation_status THEN NOW()
+                ELSE picked_up_at
+            END
+        WHERE id = p_allocation_id;
+        
+        -- Update blood stock status if fully picked up
+        IF new_status = 'picked_up'::allocation_status THEN
+            UPDATE blood_stock
+            SET status = 'used'::stock_status, used_at = NOW()
+            WHERE id = current_allocation.blood_stock_id;
+        END IF;
+        
+        RETURN TRUE;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- Function: Cancel allocation
+    CREATE OR REPLACE FUNCTION cancel_allocation(
+        p_allocation_id UUID,
+        p_reason TEXT DEFAULT NULL
+    )
+    RETURNS BOOLEAN AS $$
+    BEGIN
+        UPDATE blood_allocation
+        SET 
+            status = 'cancelled'::allocation_status,
+            cancelled_at = NOW(),
+            cancellation_reason = p_reason
+        WHERE id = p_allocation_id;
+        
+        RETURN TRUE;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- ========================================
+    -- DONOR POINTS SYSTEM
+    -- ========================================
     RETURNS TRIGGER AS $$
     BEGIN
         IF TG_OP = 'INSERT' THEN

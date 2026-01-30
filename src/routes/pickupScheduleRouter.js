@@ -1,27 +1,28 @@
 import express from 'express';
 import {
-  createPickupSchedule,
   getPickupSchedules,
-  getPickupScheduleById,
-  confirmPickup,
-  cancelPickupSchedule
+  confirmPickup
 } from '../controllers/pickupScheduleController.js';
 
 const router = express.Router();
 
-// Create pickup schedule (PMI only)
-router.post('/', createPickupSchedule);
+/**
+ * PICKUP SCHEDULES ROUTES (Read & Confirm Only)
+ * ============================================
+ * 
+ * For CREATING pickup schedules, use allocation endpoint:
+ * POST /allocation/request/:id/confirm-with-free-stock
+ * 
+ * This unified endpoint handles all scenarios:
+ * - Allocation-only pickups
+ * - Free stock-only pickups
+ * - Combined allocation + free stock pickups
+ */
 
-// Get pickup schedules (filtered by user role)
+// Get pickup schedules (filtered by user role - PMI/Hospital)
 router.get('/', getPickupSchedules);
-
-// Get pickup schedule by ID
-router.get('/:id', getPickupScheduleById);
 
 // Confirm pickup with unique code (PMI only)
 router.post('/:id/confirm', confirmPickup);
-
-// Cancel pickup schedule
-router.delete('/:id', cancelPickupSchedule);
 
 export default router;

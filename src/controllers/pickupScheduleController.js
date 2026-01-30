@@ -15,225 +15,24 @@ const errorResponse = (res, message, statusCode = 500) => {
   });
 };
 
-// Generate unique 8-character code
-function generateUniqueCode() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
-// Create pickup schedule
-export const createPickupSchedule = async (req, res) => {
-  try {
-    const { requestId, pickupDate, pickupTime, notes, pmiId } = req.body;
-
-    // Validate required fields
-    if (!requestId || !pickupDate || !pickupTime || !pmiId) {
-      return errorResponse(res, 'Request ID, pickup date, pickup time, and PMI ID are required', 400);
-    }
-
-    // Get request details
-    const { data: request, error: requestError } = await supabase
-      .from('blood_requests')
-      .select('*, requester:requester_id(institution_name, address)')
-      .eq('id', requestId)
-      .single();
-
-    if (requestError || !request) {
-      return errorResponse(res, 'Request not found', 404);
-    }
-
-    // Validate request is approved/ready and PMI is the partner
-    if (!['approved', 'ready'].includes(request.status)) {
-      return errorResponse(res, 'Request must be approved or ready before creating pickup schedule', 400);
-    }
-
-    if (request.partner_id !== pmiId) {
-      return errorResponse(res, 'You are not the partner for this request', 403);
-    }
-
-    // Get PMI details
-    const { data: pmi, error: pmiError } = await supabase
-      .from('institutions')
-      .select('institution_name, address')
-      .eq('id', pmiId)
-      .single();
-
-    if (pmiError || !pmi) {
-      return errorResponse(res, 'PMI not found', 404);
-    }
-
-    // Check if pickup schedule already exists for this request
-    const { data: existingSchedule } = await supabase
-      .from('pickup_schedules')
-      .select('id')
-      .eq('request_id', requestId)
-      .maybeSingle();
-
-    if (existingSchedule) {
-      return errorResponse(res, 'Pickup schedule already exists for this request', 400);
-    }
-
-    // Check blood stock availability
-    const { data: stock, error: stockError } = await supabase
-      .from('blood_stock')
-      .select('id, quantity')
-      .eq('institution_id', pmiId)
-      .eq('blood_type', request.blood_type)
-      .eq('status', 'available')
-      .gte('expiry_date', new Date().toISOString())
-      .order('expiry_date', { ascending: true });
-
-    if (stockError) {
-      console.error('Error fetching blood stock:', stockError);
-      return errorResponse(res, 'Error checking blood stock', 500);
-    }
-
-    // Calculate total available stock
-    const totalStock = stock.reduce((sum, item) => sum + item.quantity, 0);
-
-    if (totalStock < request.quantity) {
-      return errorResponse(res, 'Insufficient blood stock for this request', 400);
-    }
-
-    // Generate unique code
-    let uniqueCode;
-    let codeExists = true;
-    
-    while (codeExists) {
-      uniqueCode = generateUniqueCode();
-      const { data } = await supabase
-        .from('pickup_schedules')
-        .select('id')
-        .eq('unique_code', uniqueCode)
-        .maybeSingle();
-      
-      codeExists = !!data;
-    }
-
-    // Reduce blood stock (FIFO - First In First Out based on expiry date)
-    let remainingQuantity = request.quantity;
-    const stockUpdates = [];
-    const stockHistory = [];
-
-    for (const stockItem of stock) {
-      if (remainingQuantity <= 0) break;
-
-      const deductQuantity = Math.min(stockItem.quantity, remainingQuantity);
-      const newQuantity = stockItem.quantity - deductQuantity;
-
-      stockUpdates.push({
-        id: stockItem.id,
-        quantity: newQuantity,
-        status: newQuantity === 0 ? 'used' : 'available',
-        used_at: newQuantity === 0 ? new Date().toISOString() : null,
-        used_for: `Blood Request #${request.id.substring(0, 8)}`
-      });
-
-      stockHistory.push({
-        institution_id: pmiId,
-        blood_type: request.blood_type,
-        change_type: 'used',
-        quantity_change: deductQuantity,
-        previous_quantity: stockItem.quantity,
-        new_quantity: newQuantity,
-        notes: `Used for pickup schedule - Request #${request.id.substring(0, 8)}`,
-        created_by: pmiId
-      });
-
-      remainingQuantity -= deductQuantity;
-    }
-
-    // Update stock in database
-    for (const update of stockUpdates) {
-      const { error: updateError } = await supabase
-        .from('blood_stock')
-        .update({
-          quantity: update.quantity,
-          status: update.status,
-          used_at: update.used_at,
-          used_for: update.used_for,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', update.id);
-
-      if (updateError) {
-        console.error('Error updating stock:', updateError);
-        return errorResponse(res, 'Error updating blood stock', 500);
-      }
-    }
-
-    // Insert stock history
-    const { error: historyError } = await supabase
-      .from('blood_stock_history')
-      .insert(stockHistory);
-
-    if (historyError) {
-      console.error('Error inserting stock history:', historyError);
-      // Continue even if history fails
-    }
-
-    // Create pickup schedule
-    const { data: schedule, error: scheduleError } = await supabase
-      .from('pickup_schedules')
-      .insert({
-        request_id: requestId,
-        pmi_id: pmiId,
-        hospital_id: request.requester_id,
-        pickup_date: pickupDate,
-        pickup_time: pickupTime,
-        pickup_location: pmi.address,
-        unique_code: uniqueCode,
-        status: 'scheduled',
-        notes
-      })
-      .select('*, pmi:pmi_id(institution_name, address), hospital:hospital_id(institution_name, address), request:request_id(patient_name, blood_type, quantity)')
-      .single();
-
-    if (scheduleError) {
-      console.error('Error creating pickup schedule:', scheduleError);
-      return errorResponse(res, 'Error creating pickup schedule', 500);
-    }
-
-    // Update request status to 'pickup_scheduled'
-    const { data: updatedRequest, error: requestUpdateError } = await supabase
-      .from('blood_requests')
-      .update({ 
-        status: 'pickup_scheduled',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', requestId)
-      .select()
-      .single();
-
-    if (requestUpdateError) {
-      console.error('Error updating request status:', requestUpdateError);
-      return errorResponse(res, 'Error updating request status', 500);
-    }
-
-    console.log(`✅ Pickup schedule created and request updated to 'pickup_scheduled'`);
-    console.log(`   - Schedule ID: ${schedule.id}`);
-    console.log(`   - Request ID: ${requestId}`);
-    console.log(`   - Pickup Date: ${pickupDate} at ${pickupTime}`);
-
-    return successResponse(
-      res, 
-      {
-        schedule,
-        updatedRequest
-      }, 
-      'Pickup schedule created successfully. Blood stock has been reserved.', 
-      201
-    );
-
-  } catch (error) {
-    console.error('Error in createPickupSchedule:', error);
-    return errorResponse(res, 'Internal server error', 500);
-  }
-};
+/**
+ * ============================================
+ * PICKUP SCHEDULE CONTROLLER (v2 - Cleanup)
+ * ============================================
+ * 
+ * DEPRECATED FUNCTIONS REMOVED:
+ * ❌ createPickupSchedule() - Use POST /allocation/request/:id/confirm-with-free-stock instead
+ * ❌ getPickupScheduleById() - Not used by frontend
+ * ❌ cancelPickupSchedule() - Not used by frontend
+ * 
+ * ACTIVE FUNCTIONS:
+ * ✅ getPickupSchedules() - GET /pickup-schedules (list all schedules)
+ * ✅ confirmPickup() - POST /pickup-schedules/:id/confirm (verify with code)
+ * 
+ * IMPORTANT: For creating pickup schedules with allocation/free stock,
+ * use the unified endpoint in allocationController:
+ * POST /allocation/request/:id/confirm-with-free-stock
+ */
 
 // Get pickup schedules
 export const getPickupSchedules = async (req, res) => {
@@ -279,28 +78,10 @@ export const getPickupSchedules = async (req, res) => {
   }
 };
 
-// Get pickup schedule by ID
-export const getPickupScheduleById = async (req, res) => {
-  try {
-    const { id } = req.params;
+// Get pickup schedule by ID - DEPRECATED
+// ✅ Use: GET /pickup-schedules (returns list of all schedules)
+// This endpoint was not called by frontend and is removed for code cleanliness
 
-    const { data: schedule, error } = await supabase
-      .from('pickup_schedules')
-      .select('*, pmi:pmi_id(institution_name, address, phone_number), hospital:hospital_id(institution_name, address, phone_number), request:request_id(patient_name, blood_type, quantity, urgency_level)')
-      .eq('id', id)
-      .single();
-
-    if (error || !schedule) {
-      return errorResponse(res, 'Pickup schedule not found', 404);
-    }
-
-    return successResponse(res, schedule, 'Pickup schedule retrieved successfully');
-
-  } catch (error) {
-    console.error('Error in getPickupScheduleById:', error);
-    return errorResponse(res, 'Internal server error', 500);
-  }
-};
 
 // Confirm pickup with unique code
 export const confirmPickup = async (req, res) => {
@@ -354,6 +135,55 @@ export const confirmPickup = async (req, res) => {
       return errorResponse(res, 'Error confirming pickup', 500);
     }
 
+    // ✅ Get blood stocks yang digunakan untuk record history (jika dari free_stock)
+    const searchPattern = `Blood Request #${schedule.request_id.substring(0, 8)}`;
+    console.log(`🔍 Looking for used free stocks with pattern: "${searchPattern}"`);
+
+    const { data: usedStocks, error: queryError } = await supabase
+      .from('blood_stock')
+      .select('id, institution_id, quantity, blood_type')
+      .eq('used_for', searchPattern)
+      .eq('status', 'used');
+
+    console.log(`📊 Query result:`, {
+      pattern: searchPattern,
+      count: usedStocks?.length || 0,
+      usedStocks,
+      queryError
+    });
+
+    if (usedStocks && usedStocks.length > 0) {
+      for (const stock of usedStocks) {
+        // ✅ Record to blood_stock_history (free stock usage)
+        // Note: Allocation pickups are already recorded in blood_stock_history via RPC function
+        const { error: historyError } = await supabase
+          .from('blood_stock_history')
+          .insert({
+            institution_id: stock.institution_id,
+            blood_type: stock.blood_type,
+            change_type: 'used',
+            quantity_change: stock.quantity,
+            previous_quantity: stock.quantity,
+            new_quantity: 0,
+            notes: `Free stock digunakan dan dikonfirmasi dengan kode unik untuk request #${schedule.request_id.substring(0, 8)}`,
+            created_by: stock.institution_id  // ✅ Set to institution_id yang punya stok (from FK constraint)
+          });
+
+        if (historyError) {
+          console.error(`❌ Error recording blood_stock_history for free stock ${stock.id}:`, {
+            code: historyError.code,
+            message: historyError.message,
+            details: historyError.details
+          });
+          // Don't throw - let it continue to next stock
+        } else {
+          console.log(`✅ Blood stock history recorded for free stock ${stock.id}`);
+        }
+      }
+    } else {
+      console.warn(`⚠️ No additional free stocks found for pattern: "${searchPattern}". Allocation pickups already recorded via RPC.`);
+    }
+
     // Update blood request status to 'completed'
     const { error: requestError } = await supabase
       .from('blood_requests')
@@ -389,68 +219,6 @@ export const confirmPickup = async (req, res) => {
   }
 };
 
-// Cancel pickup schedule
-export const cancelPickupSchedule = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { reason, userId } = req.body;
-
-    if (!userId) {
-      return errorResponse(res, 'User ID is required', 400);
-    }
-
-    const { data: schedule, error: scheduleError } = await supabase
-      .from('pickup_schedules')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (scheduleError || !schedule) {
-      return errorResponse(res, 'Pickup schedule not found', 404);
-    }
-
-    // Verify user is PMI or Hospital
-    if (schedule.pmi_id !== userId && schedule.hospital_id !== userId) {
-      return errorResponse(res, 'You are not authorized to cancel this pickup', 403);
-    }
-
-    if (schedule.status === 'completed') {
-      return errorResponse(res, 'Cannot cancel completed pickup', 400);
-    }
-
-    // Update pickup schedule
-    const { error: updateError } = await supabase
-      .from('pickup_schedules')
-      .update({
-        status: 'cancelled',
-        notes: reason || schedule.notes,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id);
-
-    if (updateError) {
-      console.error('Error cancelling pickup schedule:', updateError);
-      return errorResponse(res, 'Error cancelling pickup schedule', 500);
-    }
-
-    // Update request status back to 'approved'
-    const { error: requestError } = await supabase
-      .from('blood_requests')
-      .update({
-        status: 'approved',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', schedule.request_id);
-
-    if (requestError) {
-      console.error('Error updating request status:', requestError);
-      // Continue anyway
-    }
-
-    return successResponse(res, null, 'Pickup schedule cancelled successfully');
-
-  } catch (error) {
-    console.error('Error in cancelPickupSchedule:', error);
-    return errorResponse(res, 'Internal server error', 500);
-  }
-};
+// Cancel pickup schedule - DEPRECATED
+// ✅ Reason: Not called by frontend, no cancel functionality implemented
+// This endpoint is removed for code cleanliness

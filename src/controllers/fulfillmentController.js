@@ -1118,6 +1118,39 @@ const completeDonation = async (req, res) => {
       return response.sendBadRequest(res, updateError.message);
     }
 
+    // ✅ NEW: Create allocation entry BEFORE updating quantity_collected (Opsi 2)
+    console.log(`🔍 Allocation creation check:`);
+    console.log(`   - fulfillment_request_id: ${confirmation.fulfillment_request_id}`);
+    console.log(`   - fulfillment.quantity_needed: ${confirmation.fulfillment.quantity_needed}`);
+    console.log(`   - fulfillment.quantity_collected (BEFORE update): ${confirmation.fulfillment.quantity_collected || 0}`);
+    console.log(`   - quantity (donation): ${quantity}`);
+    
+    if (confirmation.fulfillment_request_id) {
+      try {
+        // Calculate allocation BEFORE we update quantity_collected
+        const already_allocated = confirmation.fulfillment.quantity_collected || 0;
+        const can_allocate = Math.min(
+          quantity,
+          confirmation.fulfillment.quantity_needed - already_allocated
+        );
+
+        console.log(`   - Can allocate: ${can_allocate}`);
+
+        if (can_allocate > 0) {
+          // We'll create allocation after blood_stock is created
+          // Store this info to use later
+          var allocationPending = {
+            blood_request_id: confirmation.fulfillment.blood_request_id,
+            fulfillment_request_id: confirmation.fulfillment_request_id,
+            quantity_to_allocate: can_allocate
+          };
+          console.log(`✅ Allocation scheduled: ${can_allocate} kantong will be allocated`);
+        }
+      } catch (error) {
+        console.error(`⚠️ Error in allocation calculation:`, error);
+      }
+    }
+
     // Update fulfillment request quantity
     const newQuantity = (confirmation.fulfillment.quantity_collected || 0) + quantity;
     const newCompletedDonors = (confirmation.fulfillment.completed_donors || 0) + 1;
@@ -1252,6 +1285,35 @@ const completeDonation = async (req, res) => {
       console.log(`📝 History recorded: ${previousQuantity} → ${newTotalQuantity} kantong`);
     }
 
+    // ✅ NEW: Create allocation entry (Opsi 2 - explicit allocation tracking)
+    // Use the calculated allocation from earlier (before quantity_collected was updated)
+    if (bloodStock && allocationPending) {
+      try {
+        console.log(`📝 Creating allocation with blood_stock ${bloodStock.id}...`);
+        const { data: allocation, error: allocError } = await supabase
+          .from("blood_allocation")
+          .insert({
+            blood_request_id: allocationPending.blood_request_id,
+            fulfillment_request_id: allocationPending.fulfillment_request_id,
+            blood_stock_id: bloodStock.id,
+            quantity_allocated: allocationPending.quantity_to_allocate,
+            status: 'allocated'
+          })
+          .select()
+          .single();
+
+        if (!allocError && allocation) {
+          console.log(`✅ Created allocation: ${allocationPending.quantity_to_allocate} kantong allocated`);
+        } else {
+          console.error(`❌ Failed to create allocation:`, allocError);
+        }
+      } catch (error) {
+        console.error(`❌ Error creating allocation:`, error);
+      }
+    } else {
+      console.log(`⚠️ Skipping allocation: bloodStock=${!!bloodStock}, allocationPending=${!!allocationPending}`);
+    }
+
     // Check if fulfillment is complete and update blood_request status
     const { data: bloodRequest, error: requestError } = await supabase
       .from("blood_requests")
@@ -1321,13 +1383,29 @@ const completeDonation = async (req, res) => {
       console.error("Failed to send notification:", notifError);
     }
 
+    // ✅ NEW: Get allocation info if exists (Opsi 2)
+    let allocation = null;
+    if (confirmation.fulfillment_request_id) {
+      const { data: alloc } = await supabase
+        .from("blood_allocation")
+        .select("*")
+        .eq("fulfillment_request_id", confirmation.fulfillment_request_id)
+        .eq("blood_stock_id", bloodStock?.id)
+        .single();
+      
+      allocation = alloc;
+    }
+
     return response.sendSuccess(res, {
       message: "Donation completed successfully",
       data: {
         donation,
         confirmation: updated,
         blood_stock: bloodStock,
-        request_status_updated: bloodRequest?.status === 'in_fulfillment'
+        allocation,  // ✅ NEW: Include allocation info
+        request_status_updated: bloodRequest?.status === 'in_fulfillment',
+        quantity_collected: newQuantity,
+        quantity_still_needed: Math.max(0, confirmation.fulfillment.quantity_needed - newQuantity)
       }
     });
   } catch (error) {
