@@ -18,13 +18,49 @@ const errorResponse = (res, message, statusCode = 500) => {
 // Get blood stock history for PMI
 export const getBloodStockHistory = async (req, res) => {
   try {
-    const { pmiId, bloodType, startDate, endDate, actionType } = req.query;
+    const { pmiId, bloodType, startDate, endDate, actionType, page = 1, limit = 10 } = req.query;
 
     if (!pmiId) {
       return errorResponse(res, 'PMI ID is required', 400);
     }
 
-    // Build query
+    // Convert page and limit to numbers
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    // Build query for count
+    let countQuery = supabase
+      .from('blood_stock_history')
+      .select('id', { count: 'exact', head: true })
+      .eq('institution_id', pmiId);
+
+    // Apply filters to count query
+    if (bloodType) {
+      countQuery = countQuery.eq('blood_type', bloodType);
+    }
+
+    if (actionType) {
+      countQuery = countQuery.eq('change_type', actionType);
+    }
+
+    if (startDate) {
+      countQuery = countQuery.gte('created_at', startDate);
+    }
+
+    if (endDate) {
+      countQuery = countQuery.lte('created_at', endDate);
+    }
+
+    // Get total count
+    const { count: totalItems, error: countError } = await countQuery;
+
+    if (countError) {
+      console.error('Error counting blood stock history:', countError);
+      return errorResponse(res, 'Failed to count blood stock history', 500);
+    }
+
+    // Build query for data
     let query = supabase
       .from('blood_stock_history')
       .select(`
@@ -38,7 +74,8 @@ export const getBloodStockHistory = async (req, res) => {
         )
       `)
       .eq('institution_id', pmiId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
     // Apply filters
     if (bloodType) {
@@ -64,7 +101,22 @@ export const getBloodStockHistory = async (req, res) => {
       return errorResponse(res, 'Failed to fetch blood stock history', 500);
     }
 
-    return successResponse(res, history || [], 'Blood stock history retrieved successfully');
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalItems / limitNum);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Blood stock history retrieved successfully',
+      data: history || [],
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
   } catch (error) {
     console.error('Error in getBloodStockHistory:', error);
     return errorResponse(res, error.message, 500);

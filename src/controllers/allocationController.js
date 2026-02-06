@@ -1,6 +1,8 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import notificationService from "../services/notificationService.js";
+import { invalidate } from "../utils/cache.js";
+import { invalidateForRequest, invalidateForPartnerStock } from "../utils/invalidation.js";
 
 /**
  * Get available blood for a specific blood request (for pickup scheduling)
@@ -474,6 +476,7 @@ const confirmPickupWithFreeStock = async (req, res) => {
   const { 
     pickupDate, 
     pickupTime,
+    notes,        // Catatan dari PMI untuk rumah sakit
     allocations,  // Array of { allocation_id, quantity_picked_up }
     free_stock    // Array of { stock_id, quantity_picked_up }
   } = req.body;
@@ -646,7 +649,7 @@ const confirmPickupWithFreeStock = async (req, res) => {
         pickup_location: pickupLocation,
         unique_code: uniqueCode,
         status: "scheduled",
-        notes: `Pickup dari allocation (${totalFromAllocations}) + free stock (${totalFromFreeStock})`
+        notes: notes || null  // Gunakan catatan dari PMI, atau null jika tidak ada
       })
       .select("id")
       .single();
@@ -674,6 +677,29 @@ const confirmPickupWithFreeStock = async (req, res) => {
       from_free_stock: totalFromFreeStock,
       total: grandTotal
     });
+
+    // If there is a fulfillment/campaign for this request, mark fulfillment as fulfilled
+    try {
+      const { data: fr } = await supabase
+        .from('fulfillment_requests')
+        .select('id, campaign_id')
+        .eq('blood_request_id', blood_request_id)
+        .single();
+
+      if (fr?.id) {
+        await supabase
+          .from('fulfillment_requests')
+          .update({
+            status: 'fulfilled',
+            quantity_collected: Math.min(grandTotal, request.quantity),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', fr.id);
+      }
+      // Note: Campaign completion happens on pickup confirmation.
+    } catch (e) {
+      console.warn('⚠️ Could not complete fulfillment/campaign on pickup creation:', e?.message);
+    }
 
     // Update allocations
     const allocationUpdates = [];
@@ -872,6 +898,10 @@ const confirmPickupWithFreeStock = async (req, res) => {
         console.error("⚠️ Failed to send notification:", notifError);
       }
     }
+
+    // Invalidate related caches via centralized helpers
+    await invalidateForRequest(blood_request_id, { includeStock: true });
+    if (pmiId) await invalidateForPartnerStock(pmiId);
 
     return response.sendSuccess(res, {
       message: "Pickup with combined sources confirmed successfully",

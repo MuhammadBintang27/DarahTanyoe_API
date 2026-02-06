@@ -1,24 +1,31 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
+import { getOrSet, invalidate } from "../utils/cache.js";
 
 // Get blood stock for an institution
 const getBloodStockByInstitution = async (req, res) => {
   const { institutionId } = req.params;
 
   try {
-    const { data, error } = await supabase
-      .from("blood_stock")
-      .select("*")
-      .eq("institution_id", institutionId)
-      .eq("status", "available")
-      .order("blood_type", { ascending: true });
+    const key = `stock:snapshot:${institutionId}`;
+    const ttl = 60; // 1 minute snapshot
 
-    if (error) {
-      return response.sendInternalError(res, error.message);
-    }
+    const data = await getOrSet(key, ttl, async () => {
+      const { data, error } = await supabase
+        .from("blood_stock")
+        .select("*")
+        .eq("institution_id", institutionId)
+        .eq("status", "available")
+        .order("blood_type", { ascending: true });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+      return data || []
+    })
 
     return response.sendSuccess(res, {
-      data: data || [],
+      data,
       message: "Successfully retrieved blood stock",
     });
   } catch (error) {
@@ -139,6 +146,19 @@ const adjustBloodStock = async (req, res) => {
     if (historyError) {
       console.error("Error logging stock history:", historyError);
       // Don't fail the request if history logging fails
+    }
+
+    // Invalidate relevant caches
+    try {
+      const keysToInvalidate = [
+        `stock:snapshot:${institution_id}`,
+        'partners:with_stock',
+        `partners:institution:${institution_id}`,
+        `dashboard:pmi:${institution_id}:summary`,
+      ]
+      await invalidate(keysToInvalidate)
+    } catch (e) {
+      console.warn('[cache] post-adjust invalidate failed:', e?.message)
     }
 
     return response.sendSuccess(res, {

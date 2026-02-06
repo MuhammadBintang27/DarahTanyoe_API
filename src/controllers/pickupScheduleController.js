@@ -1,4 +1,6 @@
 import supabase from '../config/db.js';
+import { invalidate } from '../utils/cache.js';
+import { invalidateForRequest, invalidateForPartnerStock } from '../utils/invalidation.js';
 
 const successResponse = (res, data, message, statusCode = 200) => {
   return res.status(statusCode).json({
@@ -200,12 +202,40 @@ export const confirmPickup = async (req, res) => {
       return errorResponse(res, 'Error updating request status', 500);
     }
 
+    // Centralized invalidation
+    await invalidateForRequest(schedule.request_id, { includeStock: true });
+    await invalidateForPartnerStock(pmiId);
+
     // Get updated schedule
     const { data: updatedSchedule, error: fetchError } = await supabase
       .from('pickup_schedules')
       .select('*, pmi:pmi_id(institution_name), hospital:hospital_id(institution_name), request:request_id(patient_name, blood_type, quantity)')
       .eq('id', id)
       .single();
+
+    // Ensure fulfillment request and campaign are completed after pickup confirmation
+    try {
+      const { data: fr } = await supabase
+        .from('fulfillment_requests')
+        .select('id, campaign_id')
+        .eq('blood_request_id', schedule.request_id)
+        .single();
+
+      if (fr?.id) {
+        await supabase
+          .from('fulfillment_requests')
+          .update({ status: 'completed', updated_at: new Date().toISOString() })
+          .eq('id', fr.id);
+      }
+      if (fr?.campaign_id) {
+        await supabase
+          .from('blood_campaigns')
+          .update({ status: 'completed', updated_at: new Date().toISOString() })
+          .eq('id', fr.campaign_id);
+      }
+    } catch (e) {
+      console.warn('⚠️ Could not complete fulfillment/campaign on pickup confirmation:', e?.message);
+    }
 
     if (fetchError) {
       return successResponse(res, null, 'Pickup confirmed successfully');

@@ -1,6 +1,8 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import notificationService from "../services/notificationService.js";
+import { invalidate } from "../utils/cache.js";
+import { invalidateForRequest } from "../utils/invalidation.js";
 
 /**
  * Step 1: Search and Create Campaign
@@ -130,6 +132,9 @@ const searchAndCreateCampaign = async (req, res) => {
       .from("blood_requests")
       .update({ status: 'in_fulfillment' })
       .eq("id", blood_request_id);
+
+    // Invalidate related caches (lists + dashboards)
+    await invalidateForRequest(blood_request_id);
 
     // Return eligible donors list + campaign info for UI slider
     return response.sendSuccess(res, {

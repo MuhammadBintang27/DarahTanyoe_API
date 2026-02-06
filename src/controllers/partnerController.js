@@ -2,6 +2,8 @@ import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import axios from "axios";
 import notificationService from "../services/notificationService.js";
+import { getOrSet } from "../utils/cache.js";
+import { invalidateForRequest } from "../utils/invalidation.js";
 
 const createPartner = async (req, res) => {
   const fb_ver = process.env.FACEBOOK_MESSAGE_VERSION;
@@ -12,43 +14,48 @@ const createPartner = async (req, res) => {
 
 const getPatnerWithBloodStock = async (req, res) => {
   try {
-    // Get all institutions (both hospital and PMI)
-    const { data: dataInstitutions, error } = await supabase
-      .from("institutions")
-      .select("*")
-      .eq("active", true);
+    const key = "partners:with_stock";
+    const ttl = 600; // 10 minutes for relatively static list
 
-    if (error) {
-      return response.sendInternalError(res, error.message);
-    }
+    const institutions = await getOrSet(key, ttl, async () => {
+      // Get all institutions (both hospital and PMI)
+      const { data: dataInstitutions, error } = await supabase
+        .from("institutions")
+        .select("*")
+        .eq("active", true);
 
-    // Get all blood stock
-    const { data: dataBloodStock, error: errorBloodStock } = await supabase
-      .from("blood_stock")
-      .select("*")
-      .eq("status", "available");
+      if (error) {
+        throw new Error(error.message);
+      }
 
-    if (errorBloodStock) {
-      return response.sendInternalError(res, errorBloodStock.message);
-    }
+      // Get all blood stock
+      const { data: dataBloodStock, error: errorBloodStock } = await supabase
+        .from("blood_stock")
+        .select("*")
+        .eq("status", "available");
 
-    // Map institutions with their blood stock
-    const institutions = dataInstitutions.map((institution) => {
-      const bloodStock = dataBloodStock.filter(
-        (stock) => stock.institution_id === institution.id
-      );
+      if (errorBloodStock) {
+        throw new Error(errorBloodStock.message);
+      }
 
-      return {
-        ...institution,
-        blood_stock:
-          bloodStock.length > 0
-            ? bloodStock.map((stock) => ({
-                blood_type: stock.blood_type,
-                quantity: stock.quantity,
-                expiry_date: stock.expiry_date,
-              }))
-            : [],
-      };
+      // Map institutions with their blood stock
+      return dataInstitutions.map((institution) => {
+        const bloodStock = dataBloodStock.filter(
+          (stock) => stock.institution_id === institution.id
+        );
+
+        return {
+          ...institution,
+          blood_stock:
+            bloodStock.length > 0
+              ? bloodStock.map((stock) => ({
+                  blood_type: stock.blood_type,
+                  quantity: stock.quantity,
+                  expiry_date: stock.expiry_date,
+                }))
+              : [],
+        };
+      });
     });
 
     return response.sendSuccess(res, {
@@ -66,56 +73,67 @@ const getInstitutionById = async (req, res) => {
   const { institutionId } = req.params;
 
   try {
-    // Get institution data
-    const { data: institution, error: instError } = await supabase
-      .from("institutions")
-      .select("*")
-      .eq("id", institutionId)
-      .eq("active", true)
-      .single();
+    const key = `partners:institution:${institutionId}`;
+    const ttl = 120; // 2 minutes snapshot
 
-    if (instError || !institution) {
-      return response.sendNotFound(res, "Institution not found");
-    }
+    const result = await getOrSet(key, ttl, async () => {
+      // Get institution data
+      const { data: institution, error: instError } = await supabase
+        .from("institutions")
+        .select("*")
+        .eq("id", institutionId)
+        .eq("active", true)
+        .single();
 
-    // Get blood stock for this institution, grouped by blood type
-    const { data: bloodStock, error: stockError } = await supabase
-      .from("blood_stock")
-      .select("blood_type, quantity, expiry_date")
-      .eq("institution_id", institutionId)
-      .eq("status", "available");
+      if (instError || !institution) {
+        throw new Error("Institution not found");
+      }
 
-    if (stockError) {
-      console.error("Error fetching blood stock:", stockError);
-    }
+      // Get blood stock for this institution, grouped by blood type
+      const { data: bloodStock, error: stockError } = await supabase
+        .from("blood_stock")
+        .select("blood_type, quantity, expiry_date")
+        .eq("institution_id", institutionId)
+        .eq("status", "available");
 
-    // Group blood stock by blood type and sum quantities
-    const groupedStock = {};
-    if (bloodStock && bloodStock.length > 0) {
-      bloodStock.forEach((stock) => {
-        if (!groupedStock[stock.blood_type]) {
-          groupedStock[stock.blood_type] = 0;
-        }
-        groupedStock[stock.blood_type] += stock.quantity;
-      });
-    }
+      if (stockError) {
+        console.error("Error fetching blood stock:", stockError);
+      }
 
-    // Convert to array format
-    const blood_stock = Object.keys(groupedStock).map((blood_type) => ({
-      blood_type,
-      quantity: groupedStock[blood_type],
-    }));
+      // Group blood stock by blood type and sum quantities
+      const groupedStock = {};
+      if (bloodStock && bloodStock.length > 0) {
+        bloodStock.forEach((stock) => {
+          if (!groupedStock[stock.blood_type]) {
+            groupedStock[stock.blood_type] = 0;
+          }
+          groupedStock[stock.blood_type] += stock.quantity;
+        });
+      }
 
-    return response.sendSuccess(res, {
-      data: {
+      // Convert to array format
+      const blood_stock = Object.keys(groupedStock).map((blood_type) => ({
+        blood_type,
+        quantity: groupedStock[blood_type],
+      }));
+
+      return {
         ...institution,
         blood_stock,
-      },
+      }
+    })
+
+    return response.sendSuccess(res, {
+      data: result,
       message: "Successfully retrieved institution with blood stock",
     });
   } catch (error) {
     console.error("Get institution error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    // Distinguish not found vs internal
+    const msg = error?.message === 'Institution not found' ? 'Institution not found' : 'An unexpected error occurred'
+    return error?.message === 'Institution not found'
+      ? response.sendNotFound(res, msg)
+      : response.sendInternalError(res, msg)
   }
 };
 
@@ -217,6 +235,9 @@ const approveBloodRequest = async (req, res) => {
       // Don't fail the approval if notification fails
     }
 
+    // Invalidate related caches (lists + dashboards)
+    await invalidateForRequest(requestId);
+
     return response.sendSuccess(res, {
       message: "Blood request approved successfully",
       status: "approved",
@@ -304,6 +325,9 @@ const rejectBloodRequest = async (req, res) => {
       console.error('❌ Failed to send notification:', notifError);
       // Don't fail the rejection if notification fails
     }
+
+    // Invalidate related caches (lists + dashboards)
+    await invalidateForRequest(requestId);
 
     return response.sendSuccess(res, {
       message: "Blood request rejected successfully",

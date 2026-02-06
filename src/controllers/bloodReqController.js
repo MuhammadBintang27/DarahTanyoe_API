@@ -1,6 +1,7 @@
 import axios from "axios";
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
+import { getOrSet, invalidate } from "../utils/cache.js";
 import { DateTime } from "luxon";
 import notificationService from "../services/notificationService.js";
 
@@ -98,6 +99,21 @@ const createBloodReq = async (req, res) => {
       }
     }
 
+    // Invalidate relevant caches (lists + dashboard)
+    try {
+      const keys = [
+        newRequest?.requester_id ? `requests:by_requester:${newRequest.requester_id}` : null,
+        newRequest?.partner_id ? `requests:by_partner:${newRequest.partner_id}` : null,
+        newRequest?.requester_id ? `dashboard:rs:${newRequest.requester_id}:summary` : null,
+        newRequest?.partner_id ? `dashboard:pmi:${newRequest.partner_id}:summary` : null,
+        newRequest?.requester_id ? `dashboard:rs:${newRequest.requester_id}:trend:requests:30` : null,
+        newRequest?.partner_id ? `dashboard:pmi:${newRequest.partner_id}:trend:requests:30` : null,
+      ].filter(Boolean)
+      if (keys.length) await invalidate(keys)
+    } catch (e) {
+      console.warn('[cache] createBloodReq invalidate fail:', e?.message)
+    }
+
     return response.sendCreated(res, {
       message: "Blood request created successfully",
       data: { id: newRequest.id },
@@ -112,29 +128,35 @@ const getBloodRequestById = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const { data, error } = await supabase
-      .from("blood_requests")
-      .select(`
-        *,
-        requester:institutions!blood_requests_requester_id_fkey(
-          id,
-          institution_name,
-          institution_type,
-          address,
-          phone_number
-        ),
-        partner:institutions!blood_requests_partner_id_fkey(
-          id,
-          institution_name,
-          institution_type
-        )
-      `)
-      .eq("id", id)
-      .single();
+    const key = `request:${id}`
+    const ttl = 120
 
-    if (error) {
-      return response.sendInternalError(res, error.message);
-    }
+    const data = await getOrSet(key, ttl, async () => {
+      const { data, error } = await supabase
+        .from("blood_requests")
+        .select(`
+          *,
+          requester:institutions!blood_requests_requester_id_fkey(
+            id,
+            institution_name,
+            institution_type,
+            address,
+            phone_number
+          ),
+          partner:institutions!blood_requests_partner_id_fkey(
+            id,
+            institution_name,
+            institution_type
+          )
+        `)
+        .eq("id", id)
+        .single();
+
+      if (error) {
+        throw new Error(error.message)
+      }
+      return data
+    })
 
     if (!data) {
       return response.sendNotFound(res, "Blood request not found");
@@ -167,29 +189,35 @@ const getBloodReqByUserId = async (req, res) => {
   const { requesterId } = req.params;
 
   try {
-    const { data, error } = await supabase
-      .from("blood_requests")
-      .select(`
-        *,
-        requester:institutions!blood_requests_requester_id_fkey(
-          id,
-          institution_name,
-          institution_type,
-          address,
-          phone_number
-        ),
-        partner:institutions!blood_requests_partner_id_fkey(
-          id,
-          institution_name,
-          institution_type
-        )
-      `)
-      .eq("requester_id", requesterId)
-      .order("created_at", { ascending: false });
+    const key = `requests:by_requester:${requesterId}`
+    const ttl = 60
 
-    if (error) {
-      return response.sendInternalError(res, error.message);
-    }
+    const data = await getOrSet(key, ttl, async () => {
+      const { data, error } = await supabase
+        .from("blood_requests")
+        .select(`
+          *,
+          requester:institutions!blood_requests_requester_id_fkey(
+            id,
+            institution_name,
+            institution_type,
+            address,
+            phone_number
+          ),
+          partner:institutions!blood_requests_partner_id_fkey(
+            id,
+            institution_name,
+            institution_type
+          )
+        `)
+        .eq("requester_id", requesterId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw new Error(error.message)
+      }
+      return data
+    })
 
     return response.sendSuccess(res, {
       data,
@@ -205,25 +233,30 @@ const getBloodReqByPartnerId = async (req, res) => {
   const { institutionId } = req.params;
 
   try {
-    // Get blood requests where this institution is the partner (PMI receiving requests from hospitals)
-    const { data: bloodRequests, error: bloodRequestsError } = await supabase
-      .from("blood_requests")
-      .select(`
-        *,
-        requester:institutions!blood_requests_requester_id_fkey(
-          id,
-          institution_name,
-          institution_type,
-          address,
-          phone_number
-        )
-      `)
-      .eq("partner_id", institutionId)
-      .order("created_at", { ascending: false });
+    const key = `requests:by_partner:${institutionId}`
+    const ttl = 60
 
-    if (bloodRequestsError) {
-      return response.sendInternalError(res, bloodRequestsError.message);
-    }
+    const bloodRequests = await getOrSet(key, ttl, async () => {
+      const { data: bloodRequests, error: bloodRequestsError } = await supabase
+        .from("blood_requests")
+        .select(`
+          *,
+          requester:institutions!blood_requests_requester_id_fkey(
+            id,
+            institution_name,
+            institution_type,
+            address,
+            phone_number
+          )
+        `)
+        .eq("partner_id", institutionId)
+        .order("created_at", { ascending: false });
+
+      if (bloodRequestsError) {
+        throw new Error(bloodRequestsError.message)
+      }
+      return bloodRequests
+    })
 
     return response.sendSuccess(res, {
       data: bloodRequests,
@@ -328,6 +361,17 @@ const patchBloodRequestStatus = async (req, res) => {
   }
 
   try {
+    // Fetch request to know which caches to invalidate
+    const { data: reqData, error: fetchErr } = await supabase
+      .from('blood_requests')
+      .select('id, requester_id, partner_id')
+      .eq('id', id)
+      .single()
+
+    if (fetchErr || !reqData) {
+      return response.sendNotFound(res, 'Blood request not found')
+    }
+
     const { error } = await supabase
       .from("blood_requests")
       .update({ status })
@@ -335,6 +379,22 @@ const patchBloodRequestStatus = async (req, res) => {
 
     if (error) {
       return response.sendInternalError(res, error.message);
+    }
+
+    // Invalidate caches (lists + dashboard)
+    try {
+      const keys = [
+        `request:${id}`,
+        reqData?.requester_id ? `requests:by_requester:${reqData.requester_id}` : null,
+        reqData?.partner_id ? `requests:by_partner:${reqData.partner_id}` : null,
+        reqData?.requester_id ? `dashboard:rs:${reqData.requester_id}:summary` : null,
+        reqData?.partner_id ? `dashboard:pmi:${reqData.partner_id}:summary` : null,
+        reqData?.requester_id ? `dashboard:rs:${reqData.requester_id}:trend:requests:30` : null,
+        reqData?.partner_id ? `dashboard:pmi:${reqData.partner_id}:trend:requests:30` : null,
+      ].filter(Boolean)
+      if (keys.length) await invalidate(keys)
+    } catch (e) {
+      console.warn('[cache] patchBloodRequestStatus invalidate fail:', e?.message)
     }
 
     return response.sendSuccess(res, {
