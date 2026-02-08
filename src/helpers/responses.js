@@ -68,7 +68,7 @@ const sendInternalError = (res, errors) => {
   res.status(500).send({
     status: "ERROR",
     code: 500,
-    message: "Something Error.",
+    message: "Terjadi kesalahan.",
     errors,
   });
 };
@@ -77,7 +77,7 @@ const sendError = (res, code, payload) => {
   res.status(code).json({
     status: payload?.status || "ERROR",
     code,
-    message: payload.message || "Something failed.",
+    message: payload.message || "Terjadi kegagalan.",
     data: payload?.data,
   });
 };
@@ -86,7 +86,7 @@ const sendServerError = (res, message) => {
   res.status(500).send({
     status: "ERROR",
     code: 500,
-    message: message || "Internal server error.",
+    message: message || "Kesalahan server internal.",
   });
 };
 

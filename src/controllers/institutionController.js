@@ -69,12 +69,12 @@ const registerInstitution = async (req, res) => {
     delete institutionData.password;
 
     return response.sendCreated(res, {
-      message: "Institution registered successfully",
+      message: "Institusi berhasil didaftarkan",
       institution: institutionData,
     });
   } catch (error) {
     console.error("Register institution error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -123,7 +123,7 @@ const loginInstitution = async (req, res) => {
     });
   } catch (error) {
     console.error("Login institution error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 

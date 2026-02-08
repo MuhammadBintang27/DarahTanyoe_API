@@ -3,6 +3,7 @@ import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import { DateTime } from "luxon";
 import notificationService from "../services/notificationService.js";
+import { invalidate } from "../utils/cache.js";
 
 /**
  * Extract latitude & longitude dari PostGIS location field
@@ -114,12 +115,12 @@ const createBloodReq = async (req, res) => {
     }
 
     return response.sendCreated(res, {
-      message: "Blood request created successfully",
+      message: "Permintaan darah berhasil dibuat",
       data: { id: newRequest.id },
     });
   } catch (error) {
     console.error("Create blood request error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -170,11 +171,11 @@ const getBloodRequestById = async (req, res) => {
 
     return response.sendSuccess(res, {
       data,
-      message: "Successfully retrieved blood request details",
+      message: "Detail permintaan darah berhasil dimuat",
     });
   } catch (error) {
     console.error("Get blood request error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -267,11 +268,11 @@ const getBloodReqByUserId = async (req, res) => {
         hasNextPage: pageNum < totalPages,
         hasPrevPage: pageNum > 1
       },
-      message: "Successfully get blood requests with partners data",
+      message: "Daftar permintaan darah berhasil dimuat",
     });
   } catch (error) {
     console.error("Get blood requests error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -359,11 +360,11 @@ const getBloodReqByPartnerId = async (req, res) => {
         hasNextPage: pageNum < totalPages,
         hasPrevPage: pageNum > 1
       },
-      message: "Successfully retrieved blood requests",
+      message: "Daftar permintaan darah berhasil dimuat",
     });
   } catch (error) {
     console.error("Get blood requests error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -432,11 +433,11 @@ const getNearbyBloodRequests = async (req, res) => {
 
     return response.sendSuccess(res, {
       data: nearbyRequests,
-      message: "Nearby blood requests retrieved successfully",
+      message: "Permintaan darah terdekat berhasil dimuat",
     });
   } catch (error) {
     console.error("Error retrieving nearby blood requests:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -497,11 +498,11 @@ const patchBloodRequestStatus = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Blood request status updated successfully",
+      message: "Status permintaan darah berhasil diperbarui",
     });
   } catch (error) {
     console.error("Update blood request status error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -530,7 +531,7 @@ const verifyUniqueCode = async (req, res) => {
     });
   } catch (error) {
     console.error("Verify unique code error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 

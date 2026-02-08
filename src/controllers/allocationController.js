@@ -47,7 +47,7 @@ const getAvailableBloodForRequest = async (req, res) => {
     const pending = Math.max(0, totalNeeded - totalAvailable);
 
     return response.sendSuccess(res, {
-      message: "Available blood retrieved successfully",
+      message: "Berhasil memuat darah yang tersedia",
       data: {
         request: {
           id: request.id,
@@ -107,7 +107,7 @@ const getPendingPickupsForRequest = async (req, res) => {
     const totalPending = pendingPickups?.reduce((sum, p) => sum + p.quantity_pending, 0) || 0;
 
     return response.sendSuccess(res, {
-      message: "Pending pickups retrieved successfully",
+      message: "Berhasil memuat daftar pickup yang menunggu",
       data: {
         pending_pickups: pendingPickups.map(p => ({
           allocation_id: p.allocation_id,
@@ -193,7 +193,7 @@ const cancelAllocation = async (req, res) => {
     });
 
     return response.sendSuccess(res, {
-      message: "Allocation cancelled successfully",
+      message: "Alokasi berhasil dibatalkan",
       data: {
         allocation: {
           id: cancelled.id,
@@ -273,7 +273,7 @@ const getAllocationHistoryForRequest = async (req, res) => {
     });
 
     return response.sendSuccess(res, {
-      message: "Allocation history retrieved successfully",
+      message: "Riwayat alokasi berhasil dimuat",
       data: {
         allocations: allocations.map(a => ({
           id: a.id,
@@ -312,10 +312,10 @@ const getBloodWithFreeStock = async (req, res) => {
 
     console.log(`🔍 getBloodWithFreeStock: request_id=${blood_request_id}`);
 
-    // Get blood request details - simplified query without relationship
+    // Get blood request details and PMI info
     const { data: request, error: requestError } = await supabase
       .from("blood_requests")
-      .select("id, blood_type, quantity, status, requester_id")
+      .select("id, blood_type, quantity, status, requester_id, partner_id")
       .eq("id", blood_request_id)
       .single();
 
@@ -324,20 +324,30 @@ const getBloodWithFreeStock = async (req, res) => {
       return response.sendNotFound(res, "Blood request not found");
     }
 
-    // Get allocated blood (both allocated and partial_pickup status)
+    // Determine PMI - either partner_id (hospital requests) or requester_id (PMI internal requests)
+    const pmiId = request.partner_id || request.requester_id;
+    if (!pmiId) {
+      return response.sendBadRequest(res, "Cannot determine PMI for this request");
+    }
+
+    console.log(`📍 PMI for this request: ${pmiId}`);
+
+    // Get allocated blood (both allocated and partial_pickup status) - FROM ALL REQUESTS in this PMI
     const { data: allocatedBlood, error: allocError } = await supabase
       .from("blood_allocation")
       .select(`
         id,
+        blood_request_id,
         quantity_allocated,
         quantity_picked_up,
-        blood_stock:blood_stock(
+        blood_stock!blood_allocation_blood_stock_id_fkey(
           id,
           batch_number,
           blood_type,
           expiry_date,
           quantity,
-          status
+          status,
+          institution_id
         ),
         fulfillment_request:fulfillment_requests(
           id,
@@ -345,7 +355,8 @@ const getBloodWithFreeStock = async (req, res) => {
           blood_type
         )
       `)
-      .eq("blood_request_id", blood_request_id)
+      .eq("blood_stock.institution_id", pmiId)
+      .eq("blood_stock.blood_type", request.blood_type)
       .in("status", ["allocated", "partial_pickup"]);
 
     if (allocError) {
@@ -353,22 +364,26 @@ const getBloodWithFreeStock = async (req, res) => {
       return response.sendBadRequest(res, allocError.message);
     }
 
-    // ✅ DEBUG: Log allocation details
-    console.log(`📊 Allocations found:`, allocatedBlood?.length || 0);
+    // ✅ DEBUG: Log allocation details  
+    console.log(`📊 Total allocations in PMI ${pmiId}:`, allocatedBlood?.length || 0);
+    
     allocatedBlood?.forEach(a => {
-      console.log(`   - Allocation ${a.id}:`);
+      console.log(`   - Allocation ${a.id} (request: ${a.blood_request_id}):`);
       console.log(`     quantity_allocated: ${a.quantity_allocated}`);
       console.log(`     quantity_picked_up: ${a.quantity_picked_up}`);
       console.log(`     quantity_pending: ${a.quantity_allocated - a.quantity_picked_up}`);
       console.log(`     blood_stock_id: ${a.blood_stock.id}`);
       console.log(`     blood_stock.quantity: ${a.blood_stock.quantity}`);
-      console.log(`     status: ${a.status}`);
+      console.log(`     blood_stock.status: ${a.blood_stock.status}`);
     });
 
     // Calculate used stock IDs from allocations
     const usedStockIds = (allocatedBlood || []).map(a => a.blood_stock.id);
 
-    // Get free stock (not in allocation, correct blood type, available status)
+    console.log(`🔍 Used Stock IDs from allocations:`, usedStockIds);
+    console.log(`🔍 Checking each stock against allocation:`);
+
+    // Get free stock (not in allocation, correct blood type, available status, from correct PMI)
     const { data: freeStock, error: stockError } = await supabase
       .from("blood_stock")
       .select(`
@@ -382,20 +397,39 @@ const getBloodWithFreeStock = async (req, res) => {
         created_at
       `)
       .eq("blood_type", request.blood_type)
-      .eq("status", "available");
+      .eq("status", "available")
+      .eq("institution_id", pmiId);
 
     if (stockError) {
       console.error("❌ Error fetching free stock:", stockError);
       return response.sendBadRequest(res, stockError.message);
     }
 
+    console.log(`📊 Total available stock in blood_stock:`, freeStock?.length || 0);
+    console.log(`📊 All available stock in PMI ${pmiId}:`);
+    freeStock?.forEach(s => {
+      console.log(`   - Stock ${s.id}: ${s.quantity} kantong, batch: ${s.batch_number}, status: available`);
+    });
+
     // Filter out stocks that are already allocated
     const availableFreeStock = (freeStock || []).filter(
-      s => !usedStockIds.includes(s.id)
+      s => {
+        const isAllocated = usedStockIds.includes(s.id);
+        console.log(`   - Stock ${s.id} (${s.quantity} kantong): ${isAllocated ? 'ALLOCATED' : 'FREE'}`);
+        return !isAllocated;
+      }
     );
 
+    // ✅ DEBUG: Log free stock details
+    console.log(`📊 Free stock from PMI ${pmiId}:`, availableFreeStock?.length || 0);
+    availableFreeStock?.forEach(s => {
+      console.log(`   ✅ Free stock ${s.id}: ${s.quantity} kantong, batch: ${s.batch_number}`);
+    });
+
     // Calculate summary
-    const totalAllocated = allocatedBlood?.reduce(
+    // totalAllocated = only for THIS request
+    const allocationsForThisRequest = allocatedBlood?.filter(a => a.blood_request_id === blood_request_id) || [];
+    const totalAllocated = allocationsForThisRequest.reduce(
       (sum, a) => sum + (a.quantity_allocated - a.quantity_picked_up),
       0
     ) || 0;
@@ -410,6 +444,9 @@ const getBloodWithFreeStock = async (req, res) => {
     const canComplete = totalAvailable >= quantityNeeded;
 
     console.log(`✅ Blood sources found:`, {
+      request_id: blood_request_id,
+      allocations_for_this_request: allocationsForThisRequest.length,
+      total_allocations_in_pmi: allocatedBlood?.length || 0,
       from_allocation: totalAllocated,
       from_free_stock: totalFreeStock,
       total_available: totalAvailable,
@@ -417,8 +454,13 @@ const getBloodWithFreeStock = async (req, res) => {
       can_complete: canComplete
     });
 
+    console.log(`📊 Allocations for THIS request:`, allocationsForThisRequest.length);
+    allocationsForThisRequest.forEach(a => {
+      console.log(`  - Allocation ${a.id}: ${a.quantity_allocated - a.quantity_picked_up} available (patient: ${a.fulfillment_request?.patient_name})`);
+    });
+
     return response.sendSuccess(res, {
-      message: "Blood with free stock options retrieved successfully",
+      message: "Berhasil memuat data darah dan stok bebas",
       data: {
         request: {
           id: request.id,
@@ -426,7 +468,7 @@ const getBloodWithFreeStock = async (req, res) => {
           quantity_needed: quantityNeeded,
           status: request.status
         },
-        allocations: (allocatedBlood || []).map(a => ({
+        allocations: allocationsForThisRequest.map(a => ({
           allocation_id: a.id,
           quantity_allocated: a.quantity_allocated,
           quantity_picked_up: a.quantity_picked_up,
@@ -904,7 +946,7 @@ const confirmPickupWithFreeStock = async (req, res) => {
     if (pmiId) await invalidateForPartnerStock(pmiId);
 
     return response.sendSuccess(res, {
-      message: "Pickup with combined sources confirmed successfully",
+      message: "Pickup dengan sumber gabungan berhasil dikonfirmasi",
       data: {
         pickup_schedule: {
           id: pickupSchedule.id,

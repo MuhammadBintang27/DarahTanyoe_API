@@ -59,7 +59,7 @@ const getHospitalSummary = async (req, res) => {
     return response.sendSuccess(res, { data: result, message: 'Hospital summary' })
   } catch (error) {
     console.error('Hospital summary error:', error)
-    return response.sendInternalError(res, 'An unexpected error occurred')
+    return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')
   }
 }
 
@@ -108,7 +108,7 @@ const getPMISummary = async (req, res) => {
     return response.sendSuccess(res, { data: result, message: 'PMI summary' })
   } catch (error) {
     console.error('PMI summary error:', error)
-    return response.sendInternalError(res, 'An unexpected error occurred')
+    return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')
   }
 }
 
@@ -135,7 +135,7 @@ const getHospitalTrends = async (req, res) => {
     return response.sendSuccess(res, { data: result, message: 'Hospital trends' })
   } catch (error) {
     console.error('Hospital trends error:', error)
-    return response.sendInternalError(res, 'An unexpected error occurred')
+    return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')
   }
 }
 
@@ -162,7 +162,7 @@ const getPMITrends = async (req, res) => {
     return response.sendSuccess(res, { data: result, message: 'PMI trends' })
   } catch (error) {
     console.error('PMI trends error:', error)
-    return response.sendInternalError(res, 'An unexpected error occurred')
+    return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')
   }
 }
 

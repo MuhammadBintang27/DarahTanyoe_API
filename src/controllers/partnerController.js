@@ -64,7 +64,7 @@ const getPatnerWithBloodStock = async (req, res) => {
     });
   } catch (error) {
     console.error("Get institutions error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -130,7 +130,7 @@ const getInstitutionById = async (req, res) => {
   } catch (error) {
     console.error("Get institution error:", error);
     // Distinguish not found vs internal
-    const msg = error?.message === 'Institution not found' ? 'Institution not found' : 'An unexpected error occurred'
+    const msg = error?.message === 'Institution not found' ? 'Institusi tidak ditemukan' : 'Terjadi kesalahan yang tidak terduga'
     return error?.message === 'Institution not found'
       ? response.sendNotFound(res, msg)
       : response.sendInternalError(res, msg)
@@ -250,7 +250,7 @@ const approveBloodRequest = async (req, res) => {
     });
   } catch (error) {
     console.error("Approve request error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -335,7 +335,7 @@ const rejectBloodRequest = async (req, res) => {
     });
   } catch (error) {
     console.error("Reject request error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -500,11 +500,11 @@ const confirmRequest = async (req, res) => {
 
     return response.sendSuccess(res, {
       data,
-      message: "Blood request confirmed successfully & notifications sent",
+      message: "Permintaan darah berhasil dikonfirmasi",
     });
   } catch (error) {
     console.error("Confirm request error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 

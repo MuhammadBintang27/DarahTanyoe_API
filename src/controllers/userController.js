@@ -65,7 +65,7 @@ const signInWithPhone = async (req, res) => {
     console.log("OTP sent to phone:", otp);
 
     return response.sendSuccess(res, {
-      message: "Successfully sent OTP to phone number",
+      message: "Kode OTP berhasil dikirim ke nomor telepon",
       otp: otp, // Remove this in production
       expiry: expiryTime.toISOString(),
     });
@@ -73,7 +73,7 @@ const signInWithPhone = async (req, res) => {
     console.error("Signin error:", error);
     return response.sendInternalError(
       res,
-      "An unexpected error occurred when sending OTP"
+      "Terjadi kesalahan saat mengirim OTP"
     );
   }
 };
@@ -198,7 +198,7 @@ const verifyOTP = async (req, res) => {
     console.error("OTP verification error:", error);
     return response.sendInternalError(
       res,
-      "An unexpected error occurred during verification"
+      "Terjadi kesalahan saat verifikasi"
     );
   }
 };
@@ -228,7 +228,7 @@ const getUserPoints = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching user points:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -329,12 +329,12 @@ const completeUserProfile = async (req, res) => {
     }
 
     return response.sendCreated(res, {
-      message: "User profile created successfully",
+      message: "Profil pengguna berhasil dibuat",
       user: data[0],
     });
   } catch (error) {
     console.error("Complete profile error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -366,11 +366,11 @@ const signInWithWeb = async (req, res) => {
     return response.sendSuccess(res, {
       user,
       session: data.session,
-      message: "Successfully signed in",
+      message: "Berhasil masuk",
     });
   } catch (error) {
     console.error("Signin error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -391,7 +391,7 @@ const sendNotification = async (req, res) => {
     console.error("Send notification error:", error);
     return response.sendInternalError(
       res,
-      "An unexpected error occurred when sending notification"
+      "Terjadi kesalahan saat mengirim notifikasi"
     );
   }
 };
@@ -472,12 +472,12 @@ const updateUserProfile = async (req, res) => {
     console.log("🔍 DEBUG - All user fields:", Object.keys(userToReturn || {}));
 
     return response.sendSuccess(res, {
-      message: "User profile updated successfully",
+      message: "Profil pengguna berhasil diperbarui",
       user: userToReturn,
     });
   } catch (error) {
     console.error("Update profile error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 

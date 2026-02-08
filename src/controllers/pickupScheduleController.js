@@ -238,10 +238,10 @@ export const confirmPickup = async (req, res) => {
     }
 
     if (fetchError) {
-      return successResponse(res, null, 'Pickup confirmed successfully');
+      return successResponse(res, null, 'Pickup berhasil dikonfirmasi');
     }
 
-    return successResponse(res, updatedSchedule, 'Pickup confirmed successfully. Request marked as completed.');
+    return successResponse(res, updatedSchedule, 'Pickup berhasil dikonfirmasi. Permintaan ditandai selesai.');
 
   } catch (error) {
     console.error('Error in confirmPickup:', error);

@@ -19,11 +19,11 @@ const getNotificationByUserId = async (req, res) => {
 
     return response.sendSuccess(res, {
       data,
-      message: "Successfully get notifications",
+      message: "Berhasil memuat notifikasi",
     });
   } catch (error) {
     console.error("Get notifications error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -44,11 +44,11 @@ const getNotificationByInstitutionId = async (req, res) => {
     return response.sendSuccess(res, {
       data: result.notifications,
       total: result.total,
-      message: "Successfully retrieved notifications",
+      message: "Berhasil memuat notifikasi",
     });
   } catch (error) {
     console.error("Get institution notifications error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -69,11 +69,11 @@ const getUnreadCount = async (req, res) => {
 
     return response.sendSuccess(res, {
       unread_count: count || 0,
-      message: "Successfully retrieved unread count",
+      message: "Berhasil memuat jumlah notifikasi belum dibaca",
     });
   } catch (error) {
     console.error("Get unread count error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -89,7 +89,7 @@ const markAsRead = async (req, res) => {
     });
   } catch (error) {
     console.error("Mark as read error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -105,7 +105,7 @@ const markAllAsRead = async (req, res) => {
     });
   } catch (error) {
     console.error("Mark all as read error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -141,7 +141,7 @@ const registerPushToken = async (req, res) => {
     });
   } catch (error) {
     console.error("Register push token error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -161,7 +161,7 @@ const unregisterPushToken = async (req, res) => {
     });
   } catch (error) {
     console.error("Unregister push token error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -190,7 +190,7 @@ const sendTestNotification = async (req, res) => {
     });
   } catch (error) {
     console.error("Send test notification error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 

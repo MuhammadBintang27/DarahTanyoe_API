@@ -20,7 +20,7 @@ const createBloodDonor = async (req, res) => {
     });
   } catch (error) {
     console.error("Create blood donor error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -67,7 +67,7 @@ const getBloodDonorByUserId = (req, res) => {
     })
     .catch((error) => {
       console.error("Get blood donor error:", error);
-      return response.sendInternalError(res, "An unexpected error occurred");
+      return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
     });
 };
 
@@ -138,7 +138,7 @@ const patchBloodDonorStatus = async (req, res) => {
     });
   } catch (error) {
     console.error("Update blood donor status error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -166,7 +166,7 @@ const verifyUniqueCode = async (req, res) => {
     });
   } catch (error) {
     console.error("Verify unique code error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -209,7 +209,7 @@ const getDonationOffersByPartnerId = async (req, res) => {
     });
   } catch (error) {
     console.error("Get donation offers error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 

@@ -2,7 +2,7 @@ import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import notificationService from "../services/notificationService.js";
 import { invalidate } from "../utils/cache.js";
-import { invalidateForRequest } from "../utils/invalidation.js";
+import { invalidateForRequest, invalidateForPartnerStock } from "../utils/invalidation.js";
 
 /**
  * Step 1: Search and Create Campaign
@@ -314,20 +314,8 @@ const searchEligibleDonorsForFulfillment = async (req, res) => {
     const donorsFound = eligibleDonors.length;
     console.log(`🎯 Found ${donorsFound} NEW eligible donors (after excluding ${alreadyNotifiedDonorIds.length} already notified)`);
 
-    // Create donor confirmations with pending_notification status
-    if (eligibleDonors && eligibleDonors.length > 0) {
-      const confirmations = eligibleDonors.map(donor => ({
-        fulfillment_request_id: fulfillment_id,
-        donor_id: donor.donor_id, // RPC returns 'donor_id'
-        status: 'pending_notification',
-        distance_km: donor.distance_km, // RPC returns 'distance_km'
-        code_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-      }));
-
-      await supabase
-        .from("donor_confirmations")
-        .insert(confirmations);
-    }
+    // ✅ CHANGED: Do NOT create donor_confirmations here anymore
+    // They will be created in sendNotificationsToSelectedDonors when user clicks "Kirim ke Donor"
 
     // Update fulfillment status
     // Only update status if donors found, otherwise keep current status
@@ -363,7 +351,7 @@ const searchEligibleDonorsForFulfillment = async (req, res) => {
 
 /**
  * Step 2: Send Notifications to Selected Donors
- * Sends notifications only to the selected number of nearest donors
+ * Creates donor_confirmations and sends notifications to the nearest N donors based on user selection
  */
 const sendNotificationsToSelectedDonors = async (req, res) => {
   const { campaign_id, fulfillment_id, donor_count } = req.body;
@@ -379,7 +367,7 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
     // Get fulfillment request details
     const { data: fulfillmentRequest, error: fulfillmentError } = await supabase
       .from("fulfillment_requests")
-      .select("patient_name, blood_type, urgency_level, pmi_id")
+      .select("patient_name, blood_type, urgency_level, pmi_id, search_radius_km")
       .eq("id", fulfillment_id)
       .single();
 
@@ -387,53 +375,123 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
       return response.sendBadRequest(res, "Fulfillment request not found");
     }
 
-    // Get pending donor confirmations
-    const { data: donorConfirmations, error: confirmError } = await supabase
-      .from("donor_confirmations")
-      .select(`
-        id,
-        donor_id,
-        distance_km
-      `)
-      .eq("fulfillment_request_id", fulfillment_id)
-      .eq("status", 'pending_notification')
-      .limit(donor_count);
-
-    if (confirmError) {
-      console.error("❌ Error fetching donor confirmations:", confirmError);
-      return response.sendBadRequest(res, "Failed to fetch donor list");
-    }
-
-    if (!donorConfirmations || donorConfirmations.length === 0) {
-      return response.sendBadRequest(res, "No pending donors found to notify");
-    }
-
-    const selectedCount = donorConfirmations.length;
-    console.log(`📬 Sending notifications to ${selectedCount} donors...`);
-
-    // Get PMI info for distance display
+    // Get PMI location 
     const { data: pmiData } = await supabase
+      .from("institutions")
+      .select("location")
+      .eq("id", fulfillmentRequest.pmi_id)
+      .single();
+
+    if (!pmiData?.location) {
+      return response.sendBadRequest(res, "PMI location not set");
+    }
+
+    // Get existing donor confirmations to exclude them
+    const { data: existingConfirmations } = await supabase
+      .from("donor_confirmations")
+      .select("donor_id")
+      .eq("fulfillment_request_id", fulfillment_id);
+
+    const alreadyNotifiedDonorIds = existingConfirmations?.map(d => d.donor_id) || [];
+
+    // Find eligible donors (sama seperti saat search)
+    const { data: allEligibleDonors, error: donorError } = await supabase
+      .rpc('find_eligible_donors_simplified', {
+        p_blood_type: fulfillmentRequest.blood_type,
+        p_pmi_location: pmiData.location,
+        p_radius_km: fulfillmentRequest.search_radius_km || 20,
+        p_urgency_level: fulfillmentRequest.urgency_level || 'medium',
+        p_min_score: 40.0,
+        p_limit: 100
+      });
+
+    if (donorError || !allEligibleDonors) {
+      return response.sendBadRequest(res, "Failed to find eligible donors");
+    }
+
+    // Filter out already notified donors and get full details
+    const eligibleDonorsFiltered = allEligibleDonors.filter(
+      donor => !alreadyNotifiedDonorIds.includes(donor.donor_id)
+    );
+
+    if (eligibleDonorsFiltered.length === 0) {
+      return response.sendBadRequest(res, "No eligible donors available");
+    }
+
+    // Get full donor details
+    const donorIds = eligibleDonorsFiltered.map(d => d.donor_id);
+    const { data: donorDetails } = await supabase
+      .from('users')
+      .select('id, full_name, phone_number, blood_type')
+      .in('id', donorIds);
+
+    // Merge donor data with details and sort by distance (terdekat dulu)
+    const eligibleDonorsWithDetails = eligibleDonorsFiltered.map(eligible => {
+      const donorDetail = donorDetails?.find(d => d.id === eligible.donor_id);
+      return {
+        ...eligible,
+        full_name: donorDetail?.full_name || 'Unknown',
+        phone_number: donorDetail?.phone_number,
+        blood_type: donorDetail?.blood_type || eligible.blood_type
+      };
+    }).sort((a, b) => a.distance_km - b.distance_km); // Sort by distance ascending
+
+    // 🎯 Take only the nearest N donors based on user selection (slider)
+    const selectedDonorsForNotification = eligibleDonorsWithDetails.slice(0, donor_count);
+
+    console.log(`🎯 Selected ${selectedDonorsForNotification.length} nearest donors from ${eligibleDonorsWithDetails.length} available:`, 
+      selectedDonorsForNotification.map(d => ({ name: d.full_name, distance: d.distance_km }))
+    );
+
+    // 🔥 CREATE DONOR_CONFIRMATIONS for the selected nearest donors
+    const donorConfirmationsToCreate = selectedDonorsForNotification.map(donor => ({
+      fulfillment_request_id: fulfillment_id,
+      donor_id: donor.donor_id,
+      distance_km: donor.distance_km || 0,
+      status: 'pending_notification',
+      created_at: new Date().toISOString()
+    }));
+
+    console.log('🔥 Creating donor_confirmations for nearest donors:', donorConfirmationsToCreate);
+
+    const { data: createdConfirmations, error: createError } = await supabase
+      .from("donor_confirmations")
+      .insert(donorConfirmationsToCreate)
+      .select();
+
+    if (createError) {
+      console.error('❌ Error creating donor confirmations:', createError);
+      return response.sendBadRequest(res, "Failed to create donor confirmations");
+    }
+
+    console.log('✅ Created donor confirmations:', createdConfirmations);
+
+    // Send notifications to selected nearest donors
+    const notificationIds = [];
+    let notifiedCount = 0;
+
+    // Get PMI info for display
+    const { data: institutionData } = await supabase
       .from("institutions")
       .select("institution_name")
       .eq("id", fulfillmentRequest.pmi_id)
       .single();
 
-    // Send notifications to selected donors
-    let notifiedCount = 0;
-    const notificationIds = [];
-
-    for (const confirmation of donorConfirmations) {
+    // Send notifications using format from original working code
+    for (const confirmation of createdConfirmations) {
       try {
+        const donor = selectedDonorsForNotification.find(d => d.donor_id === confirmation.donor_id);
+        
         const notification = await notificationService.notify({
           userId: confirmation.donor_id,
           type: 'campaign',
           title: 'Donor Darah Dibutuhkan!',
-          message: `Pasien ${fulfillmentRequest.patient_name} membutuhkan donor darah ${fulfillmentRequest.blood_type}. Jarak Anda: ${confirmation.distance_km?.toFixed(1) || '?'} km dari ${pmiData?.institution_name || 'PMI'}.`,
+          message: `Pasien ${fulfillmentRequest.patient_name} membutuhkan donor darah ${fulfillmentRequest.blood_type}. Jarak Anda: ${donor.distance_km?.toFixed(1) || '?'} km dari ${institutionData?.institution_name || 'PMI'}.`,
           priority: fulfillmentRequest.urgency_level === 'critical' || fulfillmentRequest.urgency_level === 'high' ? 'high' : 'medium',
           relatedId: campaign_id,
           relatedType: 'blood_campaign',
           metadata: {
-            confirmationId: confirmation.id  // ✅ ADD THIS
+            confirmationId: confirmation.id
           }
         });
 
@@ -443,13 +501,15 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
             notificationId: notification.notificationId
           });
           notifiedCount++;
+          console.log('✅ Notification sent successfully:', notification.notificationId);
         }
+
       } catch (notifError) {
-        console.error(`❌ Failed to notify donor ${confirmation.donor_id}:`, notifError);
+        console.error(`❌ Failed to send notification to donor ${confirmation.donor_id}:`, notifError);
       }
     }
 
-    // Batch update confirmations with notification info
+    // Update confirmations with notification info (using original status flow)
     if (notificationIds.length > 0) {
       for (const notif of notificationIds) {
         await supabase
@@ -461,16 +521,30 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
           })
           .eq("id", notif.id);
       }
+    } else if (notifiedCount === 0 && createdConfirmations.length > 0) {
+      // If no notifications sent but confirmations exist, keep as pending_notification
+      console.warn('⚠️ No notifications sent, confirmations remain in pending_notification status');
     }
 
-    console.log(`📧 Successfully notified ${notifiedCount} donors`);
+    // Update fulfillment request status
+    await supabase
+      .from("fulfillment_requests")
+      .update({ 
+        status: notifiedCount > 0 ? 'notifications_sent' : 'failed_to_notify'
+      })
+      .eq("id", fulfillment_id);
 
     return response.sendSuccess(res, {
       campaign_id,
       fulfillment_id,
       notified_count: notifiedCount,
-      total_selected: selectedCount,
-      message: `Notifikasi berhasil dikirim ke ${notifiedCount} dari ${selectedCount} donor terpilih`
+      requested_count: donor_count,
+      available_donors: eligibleDonorsWithDetails.length,
+      notified_donors: selectedDonorsForNotification.map(d => ({
+        name: d.full_name,
+        distance_km: d.distance_km
+      })),
+      message: `Notifikasi berhasil dikirim ke ${notifiedCount} donor terdekat dari ${donor_count} yang diminta`
     });
 
   } catch (error) {
@@ -598,7 +672,7 @@ const getAllFulfillmentRequests = async (req, res) => {
     }));
 
     return response.sendSuccess(res, { 
-      message: "Fulfillment requests retrieved successfully", 
+      message: "Daftar pemenuhan berhasil dimuat", 
       data 
     });
   } catch (error) {
@@ -659,7 +733,7 @@ const getFulfillmentRequestById = async (req, res) => {
     const is_fulfilled = quantity_collected >= target_quantity;
 
     return response.sendSuccess(res, {
-      message: "Fulfillment request retrieved successfully",
+      message: "Detail pemenuhan berhasil dimuat",
       data: {
         ...data,
         confirmation_stats: confirmationStats,
@@ -724,7 +798,7 @@ const updateFulfillmentStatus = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Fulfillment request updated successfully",
+      message: "Pemenuhan berhasil diperbarui",
       data
     });
   } catch (error) {
@@ -970,8 +1044,13 @@ const verifyDonorCode = async (req, res) => {
       console.warn(`⚠️ Error checking campaign fulfillment: ${error.message}`);
     }
 
+    // Invalidate related caches after successful verification
+    if (updated.fulfillment?.blood_request_id) {
+      await invalidateForRequest(updated.fulfillment.blood_request_id);
+    }
+
     return response.sendSuccess(res, {
-      message: "Code verified successfully",
+      message: "Kode berhasil diverifikasi",
       data: {
         confirmation: updated,
         valid: true,
@@ -1130,7 +1209,10 @@ const completeDonation = async (req, res) => {
 
     // Invalidate related caches
     if (confirmation.fulfillment?.blood_request_id) {
-      await invalidateForRequest(confirmation.fulfillment.blood_request_id);
+      await invalidateForRequest(confirmation.fulfillment.blood_request_id, { includeStock: true });
+    }
+    if (pmi_id) {
+      await invalidateForPartnerStock(pmi_id);
     }
 
     // ✅ NEW: Create allocation entry BEFORE updating quantity_collected (Opsi 2)
@@ -1337,7 +1419,7 @@ const completeDonation = async (req, res) => {
       .single();
 
     if (!requestError && bloodRequest) {
-      // Check available stock for this blood type at this PMI
+      // Check total available stock for this blood type at this PMI
       const { data: availableStock } = await supabase
         .from("blood_stock")
         .select("quantity")
@@ -1347,16 +1429,50 @@ const completeDonation = async (req, res) => {
 
       const totalStock = availableStock?.reduce((sum, item) => sum + item.quantity, 0) || 0;
 
-      console.log(`📊 Stock check: ${totalStock} available vs ${bloodRequest.quantity} needed`);
+      // Check how much is already allocated TO THIS specific request
+      const { data: allocatedToThisRequest } = await supabase
+        .from("blood_allocation")
+        .select("quantity_allocated")
+        .eq("blood_request_id", bloodRequest.id)
+        .eq("status", "allocated");
 
-      // If stock is now sufficient and request is in_fulfillment, mark as ready (approved)
-      if (totalStock >= bloodRequest.quantity && bloodRequest.status === 'in_fulfillment') {
+      const allocatedToThis = allocatedToThisRequest?.reduce((sum, item) => sum + item.quantity_allocated, 0) || 0;
+
+      // Check how much is allocated to ALL requests (to calculate free stock)
+      const { data: totalAllocated } = await supabase
+        .from("blood_allocation")
+        .select(`
+          quantity_allocated,
+          blood_stock_id,
+          blood_stock!blood_allocation_blood_stock_id_fkey(
+            institution_id,
+            blood_type
+          )
+        `)
+        .eq("blood_stock.institution_id", pmi_id)
+        .eq("blood_stock.blood_type", confirmation.fulfillment.blood_type)
+        .eq("status", "allocated");
+
+      const totalAllocatedQuantity = totalAllocated?.reduce((sum, item) => sum + item.quantity_allocated, 0) || 0;
+      const freeStock = totalStock - totalAllocatedQuantity;
+      const availableForThisRequest = allocatedToThis + freeStock;
+
+      console.log(`📊 Stock check for request ${bloodRequest.id}:`);
+      console.log(`   - Total available stock: ${totalStock}`);
+      console.log(`   - Total allocated to all requests: ${totalAllocatedQuantity}`);
+      console.log(`   - Free stock (unallocated): ${freeStock}`);
+      console.log(`   - Allocated to THIS request: ${allocatedToThis}`);
+      console.log(`   - Available for this request (allocated + free): ${availableForThisRequest}`);
+      console.log(`   - Quantity needed: ${bloodRequest.quantity}`);
+
+      // If allocated + free stock is sufficient and request is in_fulfillment, mark as ready
+      if (availableForThisRequest >= bloodRequest.quantity && bloodRequest.status === 'in_fulfillment') {
         await supabase
           .from("blood_requests")
           .update({ status: 'ready' })
           .eq("id", bloodRequest.id);
 
-        console.log(`✅ Blood request ${bloodRequest.id} marked as READY - stock sufficient!`);
+        console.log(`✅ Blood request ${bloodRequest.id} marked as READY - sufficient stock available!`);
 
         // Notify hospital that blood is ready
         const { data: requester } = await supabase
@@ -1412,7 +1528,7 @@ const completeDonation = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Donation completed successfully",
+      message: "Donasi berhasil diselesaikan",
       data: {
         donation,
         confirmation: updated,
@@ -1535,7 +1651,7 @@ const initiateFulfillment = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Fulfillment initiated successfully",
+      message: "Pemenuhan berhasil dimulai",
       data: {
         donors_found: donorsFound,
         eligible_donors: eligibleDonors?.slice(0, 20) || []
@@ -1735,7 +1851,7 @@ const donorConfirm = async (req, res) => {
     console.log(`   - Blood type: ${updated.donor.blood_type}`);
 
     return response.sendSuccess(res, {
-      message: "Confirmation accepted successfully. Your unique code has been generated.",
+      message: "Konfirmasi berhasil diterima. Kode unik Anda telah dibuat.",
       data: {
         confirmationId: updated.id,
         donorName: updated.donor.full_name,
@@ -1815,7 +1931,7 @@ const donorReject = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Confirmation rejected successfully",
+      message: "Konfirmasi berhasil ditolak",
       data: {
         confirmationId: updated.id,
         status: updated.status
@@ -1901,7 +2017,7 @@ const preCheckConfirmation = async (req, res) => {
     console.log("✅ [DEBUG] New confirmation created:", newConfirmation.id);
 
     return response.sendSuccess(res, {
-      message: "Confirmation prepared successfully",
+      message: "Konfirmasi berhasil disiapkan",
       data: {
         confirmationId: newConfirmation.id,
         isNew: true

@@ -85,6 +85,7 @@
     'code_verified',  -- PMI verify code, pendonor di-verifikasi
     'completed',      -- Donasi selesai
     'rejected',       -- Pendonor reject
+    'cancelled',      -- ✅ ADDED: Pendonor cancel/batalkan
     'expired',        -- Code expired
     'failed'          -- Donasi gagal
     );
@@ -306,48 +307,6 @@
     notes TEXT,
     created_by UUID REFERENCES institutions(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    -- ========================================
-    -- BLOOD ALLOCATION SYSTEM (Opsi 2)
-    -- ========================================
-
-    -- Blood Allocation Table (NEW)
-    -- Tracks darah allocation dari fulfillment ke blood requests
-    -- Memastikan darah dari fulfillment A hanya dipakai untuk request A
-    CREATE TABLE blood_allocation (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    
-    -- References
-    blood_request_id UUID NOT NULL REFERENCES blood_requests(id) ON DELETE CASCADE,
-    fulfillment_request_id UUID REFERENCES fulfillment_requests(id) ON DELETE SET NULL,
-    blood_stock_id UUID NOT NULL REFERENCES blood_stock(id) ON DELETE CASCADE,
-    
-    -- Allocation tracking
-    quantity_allocated INTEGER NOT NULL CHECK (quantity_allocated > 0),
-    quantity_picked_up INTEGER DEFAULT 0 CHECK (quantity_picked_up >= 0),
-    status allocation_status DEFAULT 'allocated',
-    
-    -- Priority & notes
-    priority INTEGER DEFAULT 0,
-    notes TEXT,
-    
-    -- Timestamps
-    allocated_at TIMESTAMPTZ DEFAULT NOW(),
-    pickup_scheduled_at TIMESTAMPTZ,
-    picked_up_at TIMESTAMPTZ,
-    expired_at TIMESTAMPTZ,
-    cancelled_at TIMESTAMPTZ,
-    cancellation_reason TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    
-    -- Constraints
-    CHECK (quantity_picked_up <= quantity_allocated),
-    CHECK (
-        (fulfillment_request_id IS NOT NULL) OR 
-        (fulfillment_request_id IS NULL)  -- Allow general allocation without fulfillment
-    )
     );
 
     -- ========================================
@@ -760,14 +719,6 @@
     CREATE INDEX idx_donor_confirmations_verified ON donor_confirmations(code_verified);
     CREATE INDEX idx_donor_confirmations_distance ON donor_confirmations(distance_km);
 
-    -- Blood allocation indexes (NEW)
-    CREATE INDEX idx_blood_allocation_request ON blood_allocation(blood_request_id);
-    CREATE INDEX idx_blood_allocation_fulfillment ON blood_allocation(fulfillment_request_id);
-    CREATE INDEX idx_blood_allocation_stock ON blood_allocation(blood_stock_id);
-    CREATE INDEX idx_blood_allocation_status ON blood_allocation(status);
-    CREATE INDEX idx_blood_allocation_allocated_at ON blood_allocation(allocated_at DESC);
-    CREATE INDEX idx_blood_allocation_picked_up_at ON blood_allocation(picked_up_at DESC);
-
     -- ========================================
     -- TRIGGERS FOR AUTOMATION
     -- ========================================
@@ -791,7 +742,6 @@
     CREATE TRIGGER update_blood_campaigns_updated_at BEFORE UPDATE ON blood_campaigns FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
     CREATE TRIGGER update_fulfillment_requests_updated_at BEFORE UPDATE ON fulfillment_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
     CREATE TRIGGER update_donor_confirmations_updated_at BEFORE UPDATE ON donor_confirmations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-    CREATE TRIGGER update_blood_allocation_updated_at BEFORE UPDATE ON blood_allocation FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
     -- Function to log stock mutations on INSERT (donation masuk)
     CREATE OR REPLACE FUNCTION log_stock_mutation_on_insert()
@@ -1005,6 +955,9 @@
     -- ========================================
     -- DONOR POINTS SYSTEM
     -- ========================================
+
+    -- Function to update campaign statistics
+    CREATE OR REPLACE FUNCTION update_campaign_stats()
     RETURNS TRIGGER AS $$
     BEGIN
         IF TG_OP = 'INSERT' THEN
@@ -1507,6 +1460,59 @@
     COMMENT ON FUNCTION calculate_commitment_score IS 'Scores based on campaign completion rate (0-100). Weight: 15%';
     COMMENT ON FUNCTION find_eligible_donors_simplified IS 'Main algorithm: finds and ranks donors by distance (50%), history (35%), and commitment (15%)';
     COMMENT ON VIEW donor_score_analytics IS 'Analytics view for donor scoring distribution by blood type';
+
+    -- ========================================
+    -- BLOOD ALLOCATION SYSTEM (moved to bottom)
+    -- ========================================
+
+    -- Blood Allocation Table (NEW)
+    -- Tracks darah allocation dari fulfillment ke blood requests 
+    -- Memastikan darah dari fulfillment A hanya dipakai untuk request A
+    CREATE TABLE blood_allocation (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- References
+    blood_request_id UUID NOT NULL REFERENCES blood_requests(id) ON DELETE CASCADE,
+    fulfillment_request_id UUID REFERENCES fulfillment_requests(id) ON DELETE SET NULL,
+    blood_stock_id UUID NOT NULL REFERENCES blood_stock(id) ON DELETE CASCADE,
+    
+    -- Allocation tracking
+    quantity_allocated INTEGER NOT NULL CHECK (quantity_allocated > 0),
+    quantity_picked_up INTEGER DEFAULT 0 CHECK (quantity_picked_up >= 0),
+    status allocation_status DEFAULT 'allocated',
+    
+    -- Priority & notes
+    priority INTEGER DEFAULT 0,
+    notes TEXT,
+    
+    -- Timestamps
+    allocated_at TIMESTAMPTZ DEFAULT NOW(),
+    pickup_scheduled_at TIMESTAMPTZ,
+    picked_up_at TIMESTAMPTZ,
+    expired_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    cancellation_reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    -- Constraints
+    CHECK (quantity_picked_up <= quantity_allocated),
+    CHECK (
+        (fulfillment_request_id IS NOT NULL) OR 
+        (fulfillment_request_id IS NULL)  -- Allow general allocation without fulfillment
+    )
+    );
+
+    -- Blood allocation indexes
+    CREATE INDEX idx_blood_allocation_request ON blood_allocation(blood_request_id);
+    CREATE INDEX idx_blood_allocation_fulfillment ON blood_allocation(fulfillment_request_id);
+    CREATE INDEX idx_blood_allocation_stock ON blood_allocation(blood_stock_id);
+    CREATE INDEX idx_blood_allocation_status ON blood_allocation(status);
+    CREATE INDEX idx_blood_allocation_allocated_at ON blood_allocation(allocated_at DESC);
+    CREATE INDEX idx_blood_allocation_picked_up_at ON blood_allocation(picked_up_at DESC);
+
+    -- Blood allocation trigger
+    CREATE TRIGGER update_blood_allocation_updated_at BEFORE UPDATE ON blood_allocation FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
     -- ========================================
     -- INITIAL SYSTEM SETTINGS

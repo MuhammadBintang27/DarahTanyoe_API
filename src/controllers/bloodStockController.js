@@ -26,11 +26,11 @@ const getBloodStockByInstitution = async (req, res) => {
 
     return response.sendSuccess(res, {
       data,
-      message: "Successfully retrieved blood stock",
+      message: "Berhasil memuat stok darah",
     });
   } catch (error) {
     console.error("Get blood stock error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 
@@ -52,21 +52,26 @@ const adjustBloodStock = async (req, res) => {
   }
 
   try {
-    // Get current stock - use maybeSingle() to avoid error when no stock exists
-    const { data: currentStock, error: stockError } = await supabase
+    console.log(`🔍 [adjustBloodStock] Checking stock for ${institution_id} - ${blood_type} - ${change_type}: ${quantity_change}`);
+
+    // Get ALL current stock records for this blood type (there might be multiple batches)
+    const { data: currentStocks, error: stockError } = await supabase
       .from("blood_stock")
       .select("*")
       .eq("institution_id", institution_id)
       .eq("blood_type", blood_type)
-      .eq("status", "available")
-      .maybeSingle();
+      .eq("status", "available");
 
     if (stockError) {
       console.error("Error fetching stock:", stockError);
       return response.sendInternalError(res, "Failed to fetch current stock");
     }
 
-    const currentQuantity = currentStock?.quantity || 0;
+    console.log(`📦 Found ${currentStocks?.length || 0} available stock records`);
+    
+    // Calculate total current quantity from all available stocks
+    const currentQuantity = currentStocks?.reduce((total, stock) => total + stock.quantity, 0) || 0;
+    console.log(`📊 Total current quantity: ${currentQuantity} kantong`);
 
     // Validation for reduce operations
     if ((change_type === 'reduce' || change_type === 'used' || change_type === 'expired') && quantity_change > currentQuantity) {
@@ -87,22 +92,8 @@ const adjustBloodStock = async (req, res) => {
     }
 
     // Update or insert stock record
-    if (currentStock) {
-      // Update existing stock
-      const { error: updateError } = await supabase
-        .from("blood_stock")
-        .update({
-          quantity: newQuantity,
-          updated_at: new Date(),
-        })
-        .eq("id", currentStock.id);
-
-      if (updateError) {
-        console.error("Update stock error:", updateError);
-        return response.sendInternalError(res, "Failed to update stock");
-      }
-    } else if (change_type === 'add') {
-      // Create new stock record only for 'add' operations
+    if (change_type === 'add') {
+      // For add operations: create new stock record
       // Set expiry date to 35 days from now (default blood expiry)
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 35);
@@ -112,7 +103,7 @@ const adjustBloodStock = async (req, res) => {
         .insert({
           institution_id,
           blood_type,
-          quantity: newQuantity,
+          quantity: quantity_change, // Only the added quantity
           status: "available",
           expiry_date: expiryDate.toISOString().split('T')[0],
           collection_date: new Date().toISOString().split('T')[0],
@@ -125,8 +116,54 @@ const adjustBloodStock = async (req, res) => {
         console.error("Insert stock error:", insertError);
         return response.sendInternalError(res, "Failed to create stock record");
       }
+      
+      console.log(`✅ Created new stock record: ${quantity_change} kantong`);
     } else {
-      return response.sendBadRequest(res, "Cannot reduce non-existent stock");
+      // For reduce/used/expired operations: update existing stocks
+      if (currentStocks && currentStocks.length > 0) {
+        // Sort stocks by creation date (oldest first) or quantity (smallest first)
+        const sortedStocks = currentStocks.sort((a, b) => 
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+        
+        let remainingToReduce = quantity_change;
+        const updatePromises = [];
+        
+        for (const stock of sortedStocks) {
+          if (remainingToReduce <= 0) break;
+          
+          const reduceFromThisStock = Math.min(remainingToReduce, stock.quantity);
+          const newQuantity = stock.quantity - reduceFromThisStock;
+          const newStatus = newQuantity === 0 ? "used" : "available";
+          
+          console.log(`🔄 Updating stock ${stock.id}: ${stock.quantity} → ${newQuantity}`);
+          
+          const updatePromise = supabase
+            .from("blood_stock")
+            .update({
+              quantity: newQuantity,
+              status: newStatus,
+              updated_at: new Date(),
+            })
+            .eq("id", stock.id);
+            
+          updatePromises.push(updatePromise);
+          remainingToReduce -= reduceFromThisStock;
+        }
+        
+        // Execute all updates
+        const results = await Promise.all(updatePromises);
+        const hasError = results.some(result => result.error);
+        
+        if (hasError) {
+          console.error("Update stock error:", results.filter(r => r.error));
+          return response.sendInternalError(res, "Failed to update stock");
+        }
+        
+        console.log(`✅ Updated ${updatePromises.length} stock records`);
+      } else {
+        return response.sendBadRequest(res, "Cannot reduce non-existent stock");
+      }
     }
 
     // Log the stock change in history
@@ -148,6 +185,8 @@ const adjustBloodStock = async (req, res) => {
       // Don't fail the request if history logging fails
     }
 
+    console.log(`📝 Stock history logged: ${currentQuantity} → ${newQuantity}`);
+
     // Invalidate relevant caches
     try {
       const keysToInvalidate = [
@@ -162,7 +201,7 @@ const adjustBloodStock = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: `Blood stock ${change_type === 'add' ? 'increased' : 'decreased'} successfully`,
+      message: `Stok darah berhasil ${change_type === 'add' ? 'ditambah' : 'dikurangi'}`,
       data: {
         blood_type,
         previous_quantity: currentQuantity,
@@ -173,7 +212,7 @@ const adjustBloodStock = async (req, res) => {
     });
   } catch (error) {
     console.error("Adjust blood stock error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Error adjusting stock");
   }
 };
 
@@ -196,11 +235,11 @@ const getStockHistory = async (req, res) => {
 
     return response.sendSuccess(res, {
       data: data || [],
-      message: "Successfully retrieved stock history",
+      message: "Berhasil memuat riwayat stok",
     });
   } catch (error) {
     console.error("Get stock history error:", error);
-    return response.sendInternalError(res, "An unexpected error occurred");
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
   }
 };
 

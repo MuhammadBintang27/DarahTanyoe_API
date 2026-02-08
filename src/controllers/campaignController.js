@@ -279,7 +279,7 @@ const createCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaign created successfully",
+      message: "Campaign berhasil dibuat",
       data: {
         campaign: newCampaign,
         fulfillment_request: fulfillmentRequest
@@ -395,7 +395,7 @@ const getCampaignById = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaign retrieved successfully",
+      message: "Detail campaign berhasil dimuat",
       data
     });
   } catch (error) {
@@ -431,7 +431,7 @@ const updateCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaign updated successfully",
+      message: "Campaign berhasil diperbarui",
       data
     });
   } catch (error) {
@@ -459,7 +459,7 @@ const activateCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaign activated successfully",
+      message: "Campaign berhasil diaktifkan",
       data
     });
   } catch (error) {
@@ -515,7 +515,7 @@ const cancelCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaign cancelled successfully",
+      message: "Campaign berhasil dibatalkan",
       data
     });
   } catch (error) {
@@ -566,7 +566,7 @@ const registerToCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Registered to campaign successfully",
+      message: "Berhasil terdaftar dalam campaign",
       data: registration
     });
   } catch (error) {
