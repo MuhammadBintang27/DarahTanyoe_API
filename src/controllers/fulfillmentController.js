@@ -718,6 +718,11 @@ const updateFulfillmentStatus = async (req, res) => {
       await syncCampaignStatus(id, status);
     }
 
+    // Invalidate related caches
+    if (fulfillment.blood_request_id) {
+      await invalidateForRequest(fulfillment.blood_request_id);
+    }
+
     return response.sendSuccess(res, {
       message: "Fulfillment request updated successfully",
       data
@@ -1121,6 +1126,11 @@ const completeDonation = async (req, res) => {
 
     if (updateError) {
       return response.sendBadRequest(res, updateError.message);
+    }
+
+    // Invalidate related caches
+    if (confirmation.fulfillment?.blood_request_id) {
+      await invalidateForRequest(confirmation.fulfillment.blood_request_id);
     }
 
     // ✅ NEW: Create allocation entry BEFORE updating quantity_collected (Opsi 2)
@@ -1714,6 +1724,11 @@ const donorConfirm = async (req, res) => {
       return response.sendBadRequest(res, updateError.message);
     }
 
+    // Invalidate related caches
+    if (updated.fulfillment?.blood_request_id) {
+      await invalidateForRequest(updated.fulfillment.blood_request_id);
+    }
+
     console.log(`✅ Donor ${confirmation.donor.full_name} confirmed!`);
     console.log(`   - Code: ${updated.unique_code}`);
     console.log(`   - Expires at: ${updated.code_expires_at}`);
@@ -1785,6 +1800,19 @@ const donorReject = async (req, res) => {
     }
 
     console.log(`❌ Donor ${donor_id} rejected confirmation`);
+
+    // Invalidate related caches
+    if (confirmation.fulfillment_request_id) {
+      const { data: fulfillment } = await supabase
+        .from("fulfillment_requests")
+        .select("blood_request_id")
+        .eq("id", confirmation.fulfillment_request_id)
+        .single();
+      
+      if (fulfillment?.blood_request_id) {
+        await invalidateForRequest(fulfillment.blood_request_id);
+      }
+    }
 
     return response.sendSuccess(res, {
       message: "Confirmation rejected successfully",

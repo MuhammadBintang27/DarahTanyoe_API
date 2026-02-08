@@ -1,7 +1,6 @@
 import axios from "axios";
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
-import { getOrSet, invalidate } from "../utils/cache.js";
 import { DateTime } from "luxon";
 import notificationService from "../services/notificationService.js";
 
@@ -128,35 +127,29 @@ const getBloodRequestById = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const key = `request:${id}`
-    const ttl = 120
+    const { data, error } = await supabase
+      .from("blood_requests")
+      .select(`
+        *,
+        requester:institutions!blood_requests_requester_id_fkey(
+          id,
+          institution_name,
+          institution_type,
+          address,
+          phone_number
+        ),
+        partner:institutions!blood_requests_partner_id_fkey(
+          id,
+          institution_name,
+          institution_type
+        )
+      `)
+      .eq("id", id)
+      .single();
 
-    const data = await getOrSet(key, ttl, async () => {
-      const { data, error } = await supabase
-        .from("blood_requests")
-        .select(`
-          *,
-          requester:institutions!blood_requests_requester_id_fkey(
-            id,
-            institution_name,
-            institution_type,
-            address,
-            phone_number
-          ),
-          partner:institutions!blood_requests_partner_id_fkey(
-            id,
-            institution_name,
-            institution_type
-          )
-        `)
-        .eq("id", id)
-        .single();
-
-      if (error) {
-        throw new Error(error.message)
-      }
-      return data
-    })
+    if (error) {
+      return response.sendBadRequest(res, error.message);
+    }
 
     if (!data) {
       return response.sendNotFound(res, "Blood request not found");
@@ -187,40 +180,93 @@ const getBloodRequestById = async (req, res) => {
 
 const getBloodReqByUserId = async (req, res) => {
   const { requesterId } = req.params;
+  const { page = 1, limit = 10, bloodType, partnerId, date, status } = req.query;
 
   try {
-    const key = `requests:by_requester:${requesterId}`
-    const ttl = 60
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
 
-    const data = await getOrSet(key, ttl, async () => {
-      const { data, error } = await supabase
-        .from("blood_requests")
-        .select(`
-          *,
-          requester:institutions!blood_requests_requester_id_fkey(
-            id,
-            institution_name,
-            institution_type,
-            address,
-            phone_number
-          ),
-          partner:institutions!blood_requests_partner_id_fkey(
-            id,
-            institution_name,
-            institution_type
-          )
-        `)
-        .eq("requester_id", requesterId)
-        .order("created_at", { ascending: false });
+    // Build base query for counting
+    let countQuery = supabase
+      .from("blood_requests")
+      .select("*", { count: 'exact', head: true })
+      .eq("requester_id", requesterId);
 
-      if (error) {
-        throw new Error(error.message)
-      }
-      return data
-    })
+    // Apply filters to count query
+    if (bloodType) countQuery = countQuery.eq("blood_type", bloodType);
+    if (partnerId) countQuery = countQuery.eq("partner_id", partnerId);
+    if (status) countQuery = countQuery.eq("status", status);
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      countQuery = countQuery.gte("created_at", startOfDay.toISOString())
+                             .lte("created_at", endOfDay.toISOString());
+    }
+
+    // Count total items for pagination metadata
+    const { count: totalItems, error: countError } = await countQuery;
+
+    if (countError) {
+      throw new Error(countError.message);
+    }
+
+    // Build data query with filters
+    let dataQuery = supabase
+      .from("blood_requests")
+      .select(`
+        *,
+        requester:institutions!blood_requests_requester_id_fkey(
+          id,
+          institution_name,
+          institution_type,
+          address,
+          phone_number
+        ),
+        partner:institutions!blood_requests_partner_id_fkey(
+          id,
+          institution_name,
+          institution_type
+        )
+      `)
+      .eq("requester_id", requesterId);
+
+    // Apply filters to data query
+    if (bloodType) dataQuery = dataQuery.eq("blood_type", bloodType);
+    if (partnerId) dataQuery = dataQuery.eq("partner_id", partnerId);
+    if (status) dataQuery = dataQuery.eq("status", status);
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      dataQuery = dataQuery.gte("created_at", startOfDay.toISOString())
+                           .lte("created_at", endOfDay.toISOString());
+    }
+
+    dataQuery = dataQuery.order("created_at", { ascending: false })
+                         .range(offset, offset + limitNum - 1);
+
+    const { data, error } = await dataQuery;
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const totalPages = Math.ceil(totalItems / limitNum);
 
     return response.sendSuccess(res, {
       data,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      },
       message: "Successfully get blood requests with partners data",
     });
   } catch (error) {
@@ -231,35 +277,88 @@ const getBloodReqByUserId = async (req, res) => {
 
 const getBloodReqByPartnerId = async (req, res) => {
   const { institutionId } = req.params;
+  const { page = 1, limit = 10, bloodType, requesterId, date, status } = req.query;
 
   try {
-    const key = `requests:by_partner:${institutionId}`
-    const ttl = 60
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
 
-    const bloodRequests = await getOrSet(key, ttl, async () => {
-      const { data: bloodRequests, error: bloodRequestsError } = await supabase
-        .from("blood_requests")
-        .select(`
-          *,
-          requester:institutions!blood_requests_requester_id_fkey(
-            id,
-            institution_name,
-            institution_type,
-            address,
-            phone_number
-          )
-        `)
-        .eq("partner_id", institutionId)
-        .order("created_at", { ascending: false });
+    // Build base query for counting
+    let countQuery = supabase
+      .from("blood_requests")
+      .select("*", { count: 'exact', head: true })
+      .eq("partner_id", institutionId);
 
-      if (bloodRequestsError) {
-        throw new Error(bloodRequestsError.message)
-      }
-      return bloodRequests
-    })
+    // Apply filters to count query
+    if (bloodType) countQuery = countQuery.eq("blood_type", bloodType);
+    if (requesterId) countQuery = countQuery.eq("requester_id", requesterId);
+    if (status) countQuery = countQuery.eq("status", status);
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      countQuery = countQuery.gte("created_at", startOfDay.toISOString())
+                             .lte("created_at", endOfDay.toISOString());
+    }
+
+    // Count total items for pagination metadata
+    const { count: totalItems, error: countError } = await countQuery;
+
+    if (countError) {
+      throw new Error(countError.message);
+    }
+
+    // Build data query with filters
+    let dataQuery = supabase
+      .from("blood_requests")
+      .select(`
+        *,
+        requester:institutions!blood_requests_requester_id_fkey(
+          id,
+          institution_name,
+          institution_type,
+          address,
+          phone_number
+        )
+      `)
+      .eq("partner_id", institutionId);
+
+    // Apply filters to data query
+    if (bloodType) dataQuery = dataQuery.eq("blood_type", bloodType);
+    if (requesterId) dataQuery = dataQuery.eq("requester_id", requesterId);
+    if (status) dataQuery = dataQuery.eq("status", status);
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      dataQuery = dataQuery.gte("created_at", startOfDay.toISOString())
+                           .lte("created_at", endOfDay.toISOString());
+    }
+
+    dataQuery = dataQuery.order("created_at", { ascending: false })
+                         .range(offset, offset + limitNum - 1);
+
+    const { data: bloodRequests, error: bloodRequestsError } = await dataQuery;
+
+    if (bloodRequestsError) {
+      throw new Error(bloodRequestsError.message);
+    }
+
+    const totalPages = Math.ceil(totalItems / limitNum);
 
     return response.sendSuccess(res, {
       data: bloodRequests,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      },
       message: "Successfully retrieved blood requests",
     });
   } catch (error) {

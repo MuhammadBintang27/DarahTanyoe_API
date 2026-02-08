@@ -495,6 +495,9 @@ const confirmRequest = async (req, res) => {
       return response.sendBadRequest(res, error.message);
     }
 
+    // Invalidate related caches
+    await invalidateForRequest(requestId);
+
     return response.sendSuccess(res, {
       data,
       message: "Blood request confirmed successfully & notifications sent",
