@@ -60,7 +60,7 @@ const getPatnerWithBloodStock = async (req, res) => {
 
     return response.sendSuccess(res, {
       data: institutions,
-      message: "Successfully get institutions with blood stock",
+      message: "Berhasil memuat daftar institusi dengan stok darah",
     });
   } catch (error) {
     console.error("Get institutions error:", error);
@@ -125,7 +125,7 @@ const getInstitutionById = async (req, res) => {
 
     return response.sendSuccess(res, {
       data: result,
-      message: "Successfully retrieved institution with blood stock",
+      message: "Berhasil memuat detail institusi dengan stok darah",
     });
   } catch (error) {
     console.error("Get institution error:", error);
@@ -239,7 +239,7 @@ const approveBloodRequest = async (req, res) => {
     await invalidateForRequest(requestId);
 
     return response.sendSuccess(res, {
-      message: "Blood request approved successfully",
+      message: "Permintaan darah berhasil disetujui",
       status: "approved",
       unique_code: uniqueCode,
       stock_info: {
@@ -330,7 +330,7 @@ const rejectBloodRequest = async (req, res) => {
     await invalidateForRequest(requestId);
 
     return response.sendSuccess(res, {
-      message: "Blood request rejected successfully",
+      message: "Permintaan darah berhasil ditolak",
       status: "rejected"
     });
   } catch (error) {

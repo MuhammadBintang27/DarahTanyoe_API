@@ -118,12 +118,12 @@ const registerPushToken = async (req, res) => {
   const pushToken = token || fcm_token;
 
   if (!pushToken || !platform) {
-    return response.sendBadRequest(res, "Token/fcm_token and platform are required");
+    return response.sendBadRequest(res, "Token/fcm_token dan platform harus diisi");
   }
 
   // Must provide either institutionId OR userId
   if (!institutionId && !userId) {
-    return response.sendBadRequest(res, "Either institutionId or userId is required");
+    return response.sendBadRequest(res, "institutionId atau userId harus diisi");
   }
 
   try {
@@ -150,7 +150,7 @@ const unregisterPushToken = async (req, res) => {
   const { token } = req.body;
 
   if (!token) {
-    return response.sendBadRequest(res, "Token is required");
+    return response.sendBadRequest(res, "Token harus diisi");
   }
 
   try {
@@ -170,7 +170,7 @@ const sendTestNotification = async (req, res) => {
   const { institutionId, title, message } = req.body;
 
   if (!institutionId || !title || !message) {
-    return response.sendBadRequest(res, "institutionId, title, and message are required");
+    return response.sendBadRequest(res, "institutionId, title, dan message harus diisi");
   }
 
   try {

@@ -108,12 +108,12 @@ const patchBloodDonorStatus = async (req, res) => {
   const { status } = req.body;
 
   if (!status) {
-    return response.sendBadRequest(res, "Status is required");
+    return response.sendBadRequest(res, "Status harus diisi");
   }
 
   const validStatuses = ["on_progress", "completed", "cancelled"];
   if (!validStatuses.includes(status)) {
-    return response.sendBadRequest(res, "Invalid status value");
+    return response.sendBadRequest(res, "Nilai status tidak valid");
   }
 
   try {

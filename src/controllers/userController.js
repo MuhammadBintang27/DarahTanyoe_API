@@ -23,7 +23,7 @@ const signInWithPhone = async (req, res) => {
   const { phone } = req.body;
 
   if (!phone) {
-    return response.sendBadRequest(res, "Phone number is required");
+    return response.sendBadRequest(res, "Nomor telepon harus diisi");
   }
 
   try {
@@ -56,7 +56,7 @@ const signInWithPhone = async (req, res) => {
 
     if (error) {
       console.error("Error storing OTP:", error.message);
-      return response.sendInternalError(res, "Failed to store OTP");
+      return response.sendInternalError(res, "Gagal menyimpan kode OTP");
     }
 
     // Send OTP via WhatsApp (uncomment when ready)
@@ -87,7 +87,7 @@ const verifyOTP = async (req, res) => {
   if (!phone || !token) {
     return response.sendBadRequest(
       res,
-      "Phone number and OTP token are required"
+      "Nomor telepon dan kode OTP harus diisi"
     );
   }
 
@@ -104,7 +104,7 @@ const verifyOTP = async (req, res) => {
     
     if (fetchError || !otpRecord) {
       console.log("🔍 DEBUG verifyOTP - OTP record not found or error:", fetchError);
-      return response.sendBadRequest(res, `OTP not requested or expired`);
+      return response.sendBadRequest(res, `Kode OTP tidak ditemukan atau sudah kadaluarsa`);
     }
 
     const { otp, expiry, attempts, id } = otpRecord;
@@ -116,7 +116,7 @@ const verifyOTP = async (req, res) => {
       await supa.from("otp_records").delete().eq("id", id);
       return response.sendBadRequest(
         res,
-        "Too many failed attempts. Please request a new OTP"
+        "Terlalu banyak percobaan gagal. Silakan minta kode OTP baru"
       );
     }
 
@@ -128,7 +128,7 @@ const verifyOTP = async (req, res) => {
 
     if (updateError) {
       console.error("Error updating attempts:", updateError);
-      return response.sendInternalError(res, "Failed to update OTP attempts");
+      return response.sendInternalError(res, "Gagal memperbarui percobaan OTP");
     }
 
     // Check expiry
@@ -141,7 +141,7 @@ const verifyOTP = async (req, res) => {
       await supa.from("otp_records").delete().eq("id", id);
       return response.sendBadRequest(
         res,
-        "OTP has expired. Please request a new one"
+        "Kode OTP sudah kadaluarsa. Silakan minta kode baru"
       );
     }
 
@@ -155,7 +155,7 @@ const verifyOTP = async (req, res) => {
     });
     if (token !== otp) {
       console.log("🔍 DEBUG verifyOTP - Invalid OTP");
-      return response.sendBadRequest(res, "Invalid OTP");
+      return response.sendBadRequest(res, "Kode OTP tidak valid");
     }
 
     // OTP valid - delete from database
@@ -191,8 +191,8 @@ const verifyOTP = async (req, res) => {
       },
       user: user || {},
       message: user
-        ? "Logged in successfully"
-        : "Phone number verified successfully. Please complete your profile.",
+        ? "Berhasil masuk"
+        : "Nomor telepon berhasil diverifikasi. Silakan lengkapi profil Anda.",
     });
   } catch (error) {
     console.error("OTP verification error:", error);
@@ -216,11 +216,11 @@ const getUserPoints = async (req, res) => {
 
     if (error) {
       console.error("Error fetching user points:", error);
-      return response.sendInternalError(res, "Failed to fetch user points");
+      return response.sendInternalError(res, "Gagal mengambil poin pengguna");
     }
 
     if (!data) {
-      return response.sendNotFound(res, "User not found");
+      return response.sendNotFound(res, "Pengguna tidak ditemukan");
     }
 
     return response.sendSuccess(res, {
@@ -263,7 +263,7 @@ const completeUserProfile = async (req, res) => {
       !blood_type ||
       !cleanPhoneNumber
     ) {
-      return response.sendBadRequest(res, "Missing required fields");
+      return response.sendBadRequest(res, "Data yang dibutuhkan belum lengkap");
     }
 
     // Validasi usia berdasarkan date_of_birth (17-65 tahun)
@@ -274,13 +274,13 @@ const completeUserProfile = async (req, res) => {
     const actualAge = monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate()) ? age - 1 : age;
 
     if (actualAge < 17 || actualAge > 65) {
-      return response.sendBadRequest(res, "Age must be between 17 and 65 years based on date of birth");
+      return response.sendBadRequest(res, "Usia harus antara 17 hingga 65 tahun berdasarkan tanggal lahir");
     }
 
     // Validasi blood_type enum
     const validBloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
     if (!validBloodTypes.includes(blood_type)) {
-      return response.sendBadRequest(res, "Invalid blood type");
+      return response.sendBadRequest(res, "Golongan darah tidak valid");
     }
 
     // Check duplikat phone_number atau email
@@ -292,11 +292,11 @@ const completeUserProfile = async (req, res) => {
 
     if (checkError) {
       console.error("Error checking existing user:", checkError);
-      return response.sendInternalError(res, "Failed to check existing user");
+      return response.sendInternalError(res, "Gagal memeriksa pengguna yang sudah ada");
     }
 
     if (existingUser) {
-      return response.sendBadRequest(res, "Phone number or email already exists");
+      return response.sendBadRequest(res, "Nomor telepon atau email sudah terdaftar");
     }
 
     // Simpan data ke Supabase
@@ -378,14 +378,14 @@ const sendNotification = async (req, res) => {
   const { phone, message } = req.body;
 
   if (!phone || !message) {
-    return response.sendBadRequest(res, "Phone number and message are required");
+    return response.sendBadRequest(res, "Nomor telepon dan pesan harus diisi");
   }
 
   try {
     await sendWhatsAppNotification(phone, message);
 
     return response.sendSuccess(res, {
-      message: "Notification sent successfully via WhatsApp"
+      message: "Notifikasi berhasil dikirim melalui WhatsApp"
     });
   } catch (error) {
     console.error("Send notification error:", error);
@@ -416,7 +416,7 @@ const updateUserProfile = async (req, res) => {
     if (!email && !phone_number && !address && !health_notes && 
         (latitude === undefined && longitude === undefined) &&
         notifications_enabled === undefined) {
-      return response.sendBadRequest(res, "At least one field must be provided for update");
+      return response.sendBadRequest(res, "Minimal satu data harus diisi untuk diperbarui");
     }
 
     // Check if user exists
@@ -428,7 +428,7 @@ const updateUserProfile = async (req, res) => {
 
     if (fetchError || !existingUser) {
       console.error("Error fetching user:", fetchError);
-      return response.sendNotFound(res, "User not found");
+      return response.sendNotFound(res, "Pengguna tidak ditemukan");
     }
 
     // Prepare update data

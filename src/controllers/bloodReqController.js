@@ -153,7 +153,7 @@ const getBloodRequestById = async (req, res) => {
     }
 
     if (!data) {
-      return response.sendNotFound(res, "Blood request not found");
+      return response.sendNotFound(res, "Permintaan darah tidak ditemukan");
     }
 
     // Extract coordinates from PostGIS location if available
@@ -398,7 +398,7 @@ const getNearbyBloodRequests = async (req, res) => {
       .single();
 
     if (userError || !userData) {
-      return response.sendNotFound(res, "User not found");
+      return response.sendNotFound(res, "Pengguna tidak ditemukan");
     }
 
     const { data: locationData, error: locationError } = await supabase.rpc(
@@ -407,7 +407,7 @@ const getNearbyBloodRequests = async (req, res) => {
     );
 
     if (locationError || !locationData) {
-      return response.sendInternalError(res, "Failed to get user location");
+      return response.sendInternalError(res, "Gagal mendapatkan lokasi pengguna");
     }
 
     const userLocation = JSON.parse(locationData);
@@ -427,7 +427,7 @@ const getNearbyBloodRequests = async (req, res) => {
       console.error("Error fetching nearby blood requests:", nearbyError);
       return response.sendInternalError(
         res,
-        "Failed to fetch nearby blood requests"
+        "Gagal mengambil permintaan darah terdekat"
       );
     }
 
@@ -446,7 +446,7 @@ const patchBloodRequestStatus = async (req, res) => {
   const { status } = req.body;
 
   if (!status) {
-    return response.sendBadRequest(res, "Status is required");
+    return response.sendBadRequest(res, "Status harus diisi");
   }
 
   const validStatuses = [
@@ -457,7 +457,7 @@ const patchBloodRequestStatus = async (req, res) => {
     "confirmed",
   ];
   if (!validStatuses.includes(status)) {
-    return response.sendBadRequest(res, "Invalid status value");
+    return response.sendBadRequest(res, "Nilai status tidak valid");
   }
 
   try {
@@ -469,7 +469,7 @@ const patchBloodRequestStatus = async (req, res) => {
       .single()
 
     if (fetchErr || !reqData) {
-      return response.sendNotFound(res, 'Blood request not found')
+      return response.sendNotFound(res, 'Permintaan darah tidak ditemukan')
     }
 
     const { error } = await supabase
@@ -522,12 +522,12 @@ const verifyUniqueCode = async (req, res) => {
     }
 
     if (data.length === 0) {
-      return response.sendNotFound(res, "Unique code not found");
+      return response.sendNotFound(res, "Kode unik tidak ditemukan");
     }
 
     return response.sendSuccess(res, {
       data,
-      message: "Unique code verified successfully",
+      message: "Kode unik berhasil diverifikasi",
     });
   } catch (error) {
     console.error("Verify unique code error:", error);

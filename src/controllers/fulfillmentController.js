@@ -27,7 +27,7 @@ const searchAndCreateCampaign = async (req, res) => {
     // Validate required fields
     if (!blood_request_id || !pmi_id || !patient_name || !blood_type || !quantity_needed) {
       console.log("❌ Validation failed:", { blood_request_id, pmi_id, patient_name, blood_type, quantity_needed });
-      return response.sendBadRequest(res, "Missing required fields");
+      return response.sendBadRequest(res, "Data yang dibutuhkan belum lengkap");
     }
 
     // Get PMI location for donor search
@@ -44,11 +44,11 @@ const searchAndCreateCampaign = async (req, res) => {
       .single();
 
     if (pmiError || !pmiData) {
-      return response.sendBadRequest(res, "PMI not found");
+      return response.sendBadRequest(res, "PMI tidak ditemukan");
     }
 
     if (!pmiData.location) {
-      return response.sendBadRequest(res, "PMI location not set. Please update institution location first.");
+      return response.sendBadRequest(res, "Lokasi PMI belum diatur. Silakan perbarui lokasi institusi terlebih dahulu.");
     }
 
     // Check if fulfillment request already exists for this blood request
@@ -59,7 +59,7 @@ const searchAndCreateCampaign = async (req, res) => {
       .single();
 
     if (existingFulfillment) {
-      return response.sendBadRequest(res, "Fulfillment request already exists for this blood request");
+      return response.sendBadRequest(res, "Permintaan pemenuhan sudah ada untuk permintaan darah ini");
     }
 
     // Create fulfillment request
@@ -148,7 +148,7 @@ const searchAndCreateCampaign = async (req, res) => {
       patient_name,
       blood_type,
       quantity_needed,
-      message: `Kampanye berhasil dibuat. Silakan klik "Cari Pendonor" untuk mencari donor potensial.`
+      message: `Pemenuhan Darah berhasil dibuat. Silakan klik "Cari Pendonor" untuk mencari donor potensial.`
     });
 
   } catch (error) {
@@ -263,7 +263,7 @@ const searchEligibleDonorsForFulfillment = async (req, res) => {
 
     if (donorError) {
       console.error("Error finding eligible donors:", donorError);
-      return response.sendBadRequest(res, "Failed to search donors");
+      return response.sendBadRequest(res, "Gagal mencari pendonor");
     }
 
     // Filter out donors that are already in confirmations
@@ -361,7 +361,7 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
   try {
     // Validate
     if (!campaign_id || !fulfillment_id || !donor_count || donor_count < 1) {
-      return response.sendBadRequest(res, "Missing or invalid campaign_id, fulfillment_id, or donor_count");
+      return response.sendBadRequest(res, "campaign_id, fulfillment_id, atau donor_count tidak valid atau tidak boleh kosong");
     }
 
     // Get fulfillment request details
@@ -406,7 +406,7 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
       });
 
     if (donorError || !allEligibleDonors) {
-      return response.sendBadRequest(res, "Failed to find eligible donors");
+      return response.sendBadRequest(res, "Gagal menemukan pendonor yang memenuhi syarat");
     }
 
     // Filter out already notified donors and get full details
@@ -415,7 +415,7 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
     );
 
     if (eligibleDonorsFiltered.length === 0) {
-      return response.sendBadRequest(res, "No eligible donors available");
+      return response.sendBadRequest(res, "Tidak ada pendonor yang memenuhi syarat");
     }
 
     // Get full donor details
@@ -461,7 +461,7 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
 
     if (createError) {
       console.error('❌ Error creating donor confirmations:', createError);
-      return response.sendBadRequest(res, "Failed to create donor confirmations");
+      return response.sendBadRequest(res, "Gagal membuat konfirmasi pendonor");
     }
 
     console.log('✅ Created donor confirmations:', createdConfirmations);
@@ -580,7 +580,7 @@ const createFulfillmentRequest = async (req, res) => {
     });
 
     if (!searchRes || !searchRes.campaign_id) {
-      return response.sendBadRequest(res, "Failed to search and create campaign");
+      return response.sendBadRequest(res, "Gagal mencari dan membuat Pemenuhan Darah");
     }
 
     // Step 2: Auto-notify all eligible donors (backward compatible behavior)
@@ -929,7 +929,7 @@ const verifyDonorCode = async (req, res) => {
 
   try {
     if (!unique_code || !pmi_id) {
-      return response.sendBadRequest(res, "unique_code and pmi_id are required");
+      return response.sendBadRequest(res, "unique_code dan pmi_id harus diisi");
     }
 
     // Find confirmation by code
@@ -954,7 +954,7 @@ const verifyDonorCode = async (req, res) => {
 
     // Check if code is already verified
     if (confirmation.code_verified) {
-      return response.sendBadRequest(res, "Code already verified");
+      return response.sendBadRequest(res, "Kode sudah diverifikasi");
     }
 
     // Check if code is expired
@@ -966,7 +966,7 @@ const verifyDonorCode = async (req, res) => {
         .update({ status: "expired" })
         .eq("id", confirmation.id);
 
-      return response.sendBadRequest(res, "Code expired");
+      return response.sendBadRequest(res, "Kode sudah kadaluarsa");
     }
 
     // Verify PMI matches
@@ -1138,7 +1138,7 @@ const completeDonation = async (req, res) => {
 
   try {
     if (!confirmation_id || !pmi_id || !quantity) {
-      return response.sendBadRequest(res, "confirmation_id, pmi_id, and quantity are required");
+      return response.sendBadRequest(res, "confirmation_id, pmi_id, dan quantity harus diisi");
     }
 
     // Get confirmation details
@@ -1751,7 +1751,7 @@ const donorConfirm = async (req, res) => {
 
       if (fulfillError || !fulfillment) {
         console.log("❌ [DEBUG] Fulfillment not found - fulfillError:", fulfillError);
-        return response.sendBadRequest(res, `Fulfillment request not found for campaign ID: ${campaign_id}`);
+        return response.sendBadRequest(res, `Permintaan pemenuhan tidak ditemukan untuk Pemenuhan Darah ID: ${campaign_id}`);
       }
 
       const fulfillment_request_id = fulfillment.id;
@@ -1811,7 +1811,7 @@ const donorConfirm = async (req, res) => {
           .update({ status: "expired" })
           .eq("id", confirmation.id);
 
-        return response.sendBadRequest(res, "Confirmation expired - Please wait for a new notification");
+        return response.sendBadRequest(res, "Konfirmasi sudah kadaluarsa - Silakan tunggu notifikasi baru");
       }
     }
 
@@ -1876,7 +1876,7 @@ const donorReject = async (req, res) => {
 
   try {
     if (!confirmation_id || !donor_id) {
-      return response.sendBadRequest(res, "confirmation_id and donor_id are required");
+      return response.sendBadRequest(res, "confirmation_id dan donor_id harus diisi");
     }
 
     // Get confirmation details
@@ -1897,7 +1897,7 @@ const donorReject = async (req, res) => {
 
     // Check if already processed
     if (confirmation.status !== 'pending') {
-      return response.sendBadRequest(res, `Cannot reject - status is already ${confirmation.status}`);
+        return response.sendBadRequest(res, `Tidak dapat menolak - status sudah ${confirmation.status}`);
     }
 
     // Update confirmation to 'rejected'
@@ -1954,7 +1954,7 @@ const preCheckConfirmation = async (req, res) => {
   try {
     // Validate required params
     if (!campaign_id || !donor_id) {
-      return response.sendBadRequest(res, "campaign_id and donor_id are required");
+      return response.sendBadRequest(res, "campaign_id dan donor_id harus diisi");
     }
 
     console.log("🔍 [DEBUG] Pre-check called for:", { campaign_id, donor_id });
@@ -1968,7 +1968,7 @@ const preCheckConfirmation = async (req, res) => {
 
     if (fulfillError || !fulfillment) {
       console.log("❌ [DEBUG] Campaign/fulfillment not found");
-      return response.sendBadRequest(res, "Campaign not found");
+      return response.sendBadRequest(res, "Pemenuhan Darah tidak ditemukan");
     }
 
     console.log("✅ [DEBUG] Fulfillment found:", fulfillment.id);
@@ -2011,7 +2011,7 @@ const preCheckConfirmation = async (req, res) => {
 
     if (createError) {
       console.error("❌ [DEBUG] Error creating confirmation:", createError);
-      return response.sendBadRequest(res, "Failed to create confirmation");
+      return response.sendBadRequest(res, "Gagal membuat konfirmasi");
     }
 
     console.log("✅ [DEBUG] New confirmation created:", newConfirmation.id);

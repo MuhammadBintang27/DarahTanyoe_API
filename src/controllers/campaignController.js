@@ -111,7 +111,7 @@ const createCampaign = async (req, res) => {
   try {
     // Validate required fields
     if (!organizer_id || !title || !start_date || !end_date || !location || !address || !contact_person || !contact_phone) {
-      return response.sendBadRequest(res, "Missing required fields");
+      return response.sendBadRequest(res, "Data yang dibutuhkan belum lengkap");
     }
 
     // Convert coordinates to PostGIS format if provided
@@ -279,7 +279,7 @@ const createCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaign berhasil dibuat",
+      message: "Pemenuhan Darah berhasil dibuat",
       data: {
         campaign: newCampaign,
         fulfillment_request: fulfillmentRequest
@@ -327,7 +327,7 @@ const getAllCampaigns = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaigns retrieved successfully",
+      message: "Daftar Pemenuhan Darah berhasil dimuat",
       data
     });
   } catch (error) {
@@ -378,7 +378,7 @@ const getCampaignById = async (req, res) => {
       .single();
 
     if (error) {
-      return response.sendNotFound(res, "Campaign not found");
+      return response.sendNotFound(res, "Pemenuhan Darah tidak ditemukan");
     }
 
     // Extract coordinates from campaign_location if available
@@ -395,7 +395,7 @@ const getCampaignById = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Detail campaign berhasil dimuat",
+      message: "Detail Pemenuhan Darah berhasil dimuat",
       data
     });
   } catch (error) {
@@ -431,7 +431,7 @@ const updateCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaign berhasil diperbarui",
+      message: "Pemenuhan Darah berhasil diperbarui",
       data
     });
   } catch (error) {
@@ -459,7 +459,7 @@ const activateCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaign berhasil diaktifkan",
+      message: "Pemenuhan Darah berhasil diaktifkan",
       data
     });
   } catch (error) {
@@ -502,8 +502,8 @@ const cancelCampaign = async (req, res) => {
           await notificationService.notify({
             userId: reg.user_id,
             type: 'campaign',
-            title: 'Kampanye Dibatalkan',
-            message: `Kampanye "${data.title}" telah dibatalkan. ${cancellation_reason || ''}`,
+            title: 'Pemenuhan Darah Dibatalkan',
+            message: `Pemenuhan Darah "${data.title}" telah dibatalkan. ${cancellation_reason || ''}`,
             priority: 'medium',
             relatedId: id,
             relatedType: 'blood_campaign'
@@ -515,7 +515,7 @@ const cancelCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaign berhasil dibatalkan",
+      message: "Pemenuhan Darah berhasil dibatalkan",
       data
     });
   } catch (error) {
@@ -540,7 +540,7 @@ const registerToCampaign = async (req, res) => {
       .single();
 
     if (existing) {
-      return response.sendBadRequest(res, "Already registered to this campaign");
+      return response.sendBadRequest(res, "Sudah terdaftar di Pemenuhan Darah ini");
     }
 
     // Check campaign capacity
@@ -551,7 +551,7 @@ const registerToCampaign = async (req, res) => {
       .single();
 
     if (campaign?.max_participants && campaign.current_participants >= campaign.max_participants) {
-      return response.sendBadRequest(res, "Campaign is full");
+      return response.sendBadRequest(res, "Pemenuhan Darah sudah penuh");
     }
 
     // Create registration
@@ -566,7 +566,7 @@ const registerToCampaign = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Berhasil terdaftar dalam campaign",
+      message: "Berhasil terdaftar dalam Pemenuhan Darah",
       data: registration
     });
   } catch (error) {
@@ -593,12 +593,12 @@ const getNearestCampaigns = async (req, res) => {
 
     if (userError || !userData) {
       console.log("❌ User not found:", userId);
-      return response.sendBadRequest(res, "User not found");
+      return response.sendBadRequest(res, "Pengguna tidak ditemukan");
     }
 
     if (!userData.location) {
       console.log("❌ User location not set for user:", userId);
-      return response.sendBadRequest(res, "User location not set");
+      return response.sendBadRequest(res, "Lokasi pengguna belum diatur");
     }
 
     console.log("✅ User found:", userId);
@@ -623,7 +623,7 @@ const getNearestCampaigns = async (req, res) => {
     if (campaignIds.length === 0) {
       console.log("ℹ️ User has no notified campaigns yet");
       return response.sendSuccess(res, {
-        message: "No nearby campaigns with notifications yet",
+        message: "Belum ada Pemenuhan Darah terdekat dengan notifikasi",
         data: [],
         count: 0,
         user_location: {
@@ -711,7 +711,7 @@ const getNearestCampaigns = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Campaigns retrieved successfully",
+      message: "Daftar Pemenuhan Darah berhasil dimuat",
       data: nearestCampaigns,
       count: nearestCampaigns.length,
       user_location: {

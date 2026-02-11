@@ -18,12 +18,12 @@ const registerInstitution = async (req, res) => {
 
     // Validasi input
     if (!institution_type || !email || !password || !institution_name || !address) {
-      return response.sendBadRequest(res, "Missing required fields");
+      return response.sendBadRequest(res, "Data yang dibutuhkan belum lengkap");
     }
 
     // Validasi institution_type
     if (!['hospital', 'pmi'].includes(institution_type)) {
-      return response.sendBadRequest(res, "Invalid institution type. Must be 'hospital' or 'pmi'");
+      return response.sendBadRequest(res, "Jenis institusi tidak valid. Harus 'hospital' atau 'pmi'");
     }
 
     // Hash password
@@ -37,7 +37,7 @@ const registerInstitution = async (req, res) => {
       .maybeSingle();
 
     if (existingInstitution) {
-      return response.sendBadRequest(res, "Email already registered");
+      return response.sendBadRequest(res, "Email Sudah Terdaftar");
     }
 
     // Insert institution
@@ -84,7 +84,7 @@ const loginInstitution = async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return response.sendBadRequest(res, "Email and password are required");
+      return response.sendBadRequest(res, "Email dan password harus diisi");
     }
 
     // Get institution
@@ -95,13 +95,13 @@ const loginInstitution = async (req, res) => {
       .maybeSingle();
 
     if (error || !institution) {
-      return response.sendBadRequest(res, "Invalid email or password");
+      return response.sendBadRequest(res, "email atau password salah");
     }
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, institution.password);
     if (!isValidPassword) {
-      return response.sendBadRequest(res, "Invalid email or password");
+      return response.sendBadRequest(res, "email atau password salah");
     }
 
     // Generate session token (simple implementation)
@@ -113,7 +113,7 @@ const loginInstitution = async (req, res) => {
     delete institutionData.password;
 
     return response.sendSuccess(res, {
-      message: "Login successful",
+      message: "Login berhasil",
       institution: institutionData,
       session: {
         access_token: sessionToken,

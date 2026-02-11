@@ -11,7 +11,7 @@ const saveFCMToken = async (req, res) => {
   try {
     // Validate required fields
     if (!user_id || !fcm_token) {
-      return response.sendBadRequest(res, "Missing user_id or fcm_token");
+      return response.sendBadRequest(res, "user_id atau fcm_token tidak boleh kosong");
     }
 
     console.log(`📱 Saving FCM token for user: ${user_id} (${platform})`);

@@ -40,15 +40,15 @@ const adjustBloodStock = async (req, res) => {
 
   // Validation
   if (!institution_id || !blood_type || !change_type || !quantity_change) {
-    return response.sendBadRequest(res, "Missing required fields");
+    return response.sendBadRequest(res, "Data yang dibutuhkan belum lengkap");
   }
 
   if (quantity_change <= 0) {
-    return response.sendBadRequest(res, "Quantity change must be greater than 0");
+    return response.sendBadRequest(res, "Perubahan jumlah harus lebih besar dari 0");
   }
 
   if (!['add', 'reduce', 'used', 'expired'].includes(change_type)) {
-    return response.sendBadRequest(res, "Invalid change type");
+    return response.sendBadRequest(res, "Jenis perubahan tidak valid");
   }
 
   try {
@@ -162,7 +162,7 @@ const adjustBloodStock = async (req, res) => {
         
         console.log(`✅ Updated ${updatePromises.length} stock records`);
       } else {
-        return response.sendBadRequest(res, "Cannot reduce non-existent stock");
+        return response.sendBadRequest(res, "Tidak dapat mengurangi stok yang tidak ada");
       }
     }
 
