@@ -898,8 +898,8 @@ const getDonorConfirmationsByDonorId = async (req, res) => {
       // Active: confirmed or code_verified (waiting for completion)
       query = query.in("status", ["confirmed", "code_verified"]);
     } else if (status === "completed") {
-      // Completed: completed, rejected, expired, failed
-      query = query.in("status", ["completed", "rejected", "expired", "failed"]);
+      // Completed tab: include completed and ended states
+      query = query.in("status", ["completed", "rejected", "expired", "failed", "cancelled"]);
     }
 
     const { data, error } = await query;
@@ -1944,6 +1944,81 @@ const donorReject = async (req, res) => {
 };
 
 /**
+ * Donor Cancel (Pendonor membatalkan setelah konfirmasi/verifikasi kode)
+ * Allowed from statuses: confirmed, code_verified (and optionally pending)
+ */
+const donorCancel = async (req, res) => {
+  const { confirmation_id, donor_id, cancellation_reason } = req.body;
+
+  try {
+    if (!confirmation_id || !donor_id) {
+      return response.sendBadRequest(res, "confirmation_id dan donor_id harus diisi");
+    }
+
+    // Get confirmation details with minimal fields
+    const { data: confirmation, error: findError } = await supabase
+      .from("donor_confirmations")
+      .select("id, donor_id, status, fulfillment_request_id")
+      .eq("id", confirmation_id)
+      .single();
+
+    if (findError || !confirmation) {
+      return response.sendNotFound(res, "Confirmation not found");
+    }
+
+    // Verify donor owns this confirmation
+    if (confirmation.donor_id !== donor_id) {
+      return response.sendBadRequest(res, "Unauthorized - You are not the donor for this confirmation");
+    }
+
+    // Only allow cancel from certain statuses
+    const cancellable = ["confirmed", "code_verified", "pending", "pending_notification"]; 
+    if (!cancellable.includes(confirmation.status)) {
+      return response.sendBadRequest(res, `Tidak dapat membatalkan - status sudah ${confirmation.status}`);
+    }
+
+    // Update status to 'cancelled'
+    const { data: updated, error: updateError } = await supabase
+      .from("donor_confirmations")
+      .update({
+        status: "cancelled",
+        notes: cancellation_reason ? `Cancelled by donor: ${cancellation_reason}` : "Cancelled by donor",
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", confirmation_id)
+      .select("id, status")
+      .single();
+
+    if (updateError) {
+      return response.sendBadRequest(res, updateError.message);
+    }
+
+    // Invalidate related caches
+    if (confirmation.fulfillment_request_id) {
+      const { data: fulfillment } = await supabase
+        .from("fulfillment_requests")
+        .select("blood_request_id")
+        .eq("id", confirmation.fulfillment_request_id)
+        .single();
+      if (fulfillment?.blood_request_id) {
+        await invalidateForRequest(fulfillment.blood_request_id);
+      }
+    }
+
+    return response.sendSuccess(res, {
+      message: "Konfirmasi berhasil dibatalkan",
+      data: {
+        confirmationId: updated.id,
+        status: updated.status
+      }
+    });
+  } catch (error) {
+    console.error("Error in donorCancel:", error);
+    return response.sendServerError(res, error.message);
+  }
+};
+
+/**
  * Pre-check/Pre-create Confirmation
  * Called when user opens DetailPermintaanDarah from "Permintaan Terdekat"
  * Creates confirmation with 'pending_notification' status BEFORE form submit
@@ -2045,5 +2120,6 @@ export default {
   initiateFulfillment,
   donorConfirm,
   donorReject,
+  donorCancel,
   preCheckConfirmation
 };

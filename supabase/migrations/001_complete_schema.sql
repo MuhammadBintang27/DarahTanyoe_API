@@ -90,6 +90,9 @@
     'failed'          -- Donasi gagal
     );
 
+    -- Donor Confirmation Origin Enum (fulfillment vs donor_biasa)
+    CREATE TYPE confirmation_origin AS ENUM ('fulfillment', 'donor_biasa');
+
     -- ✅ NEW: Blood Allocation Status Enum (Opsi 2)
     CREATE TYPE allocation_status AS ENUM (
         'allocated',      -- Darah sudah dialokasikan untuk request
@@ -508,7 +511,7 @@
     -- Tracks individual donor responses to fulfillment requests
     CREATE TABLE donor_confirmations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    fulfillment_request_id UUID NOT NULL REFERENCES fulfillment_requests(id) ON DELETE CASCADE,
+    fulfillment_request_id UUID REFERENCES fulfillment_requests(id) ON DELETE CASCADE,
     campaign_id UUID REFERENCES blood_campaigns(id) ON DELETE CASCADE,
     donor_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     unique_code VARCHAR(12) UNIQUE,
@@ -529,6 +532,10 @@
     check_out_time TIMESTAMPTZ,
     notes TEXT,
     distance_km NUMERIC(10, 2),
+    -- Donor Biasa fields
+    confirmation_origin confirmation_origin NOT NULL DEFAULT 'fulfillment',
+    pmi_id UUID REFERENCES institutions(id),
+    scheduled_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     
@@ -718,6 +725,16 @@
     CREATE INDEX idx_donor_confirmations_expires_at ON donor_confirmations(code_expires_at);
     CREATE INDEX idx_donor_confirmations_verified ON donor_confirmations(code_verified);
     CREATE INDEX idx_donor_confirmations_distance ON donor_confirmations(distance_km);
+    CREATE INDEX idx_donor_confirmations_origin ON donor_confirmations(confirmation_origin);
+    CREATE INDEX idx_donor_confirmations_pmi ON donor_confirmations(pmi_id);
+    CREATE INDEX idx_donor_confirmations_status_origin ON donor_confirmations(status, confirmation_origin);
+
+        -- Enforce at most 1 active Janji Donor per donor (for donor_biasa)
+        -- Active defined as status in ('confirmed','code_verified')
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_active_donor_biasa_per_donor
+                ON donor_confirmations(donor_id)
+                WHERE confirmation_origin = 'donor_biasa'
+                    AND status IN ('confirmed','code_verified');
 
     -- ========================================
     -- TRIGGERS FOR AUTOMATION
@@ -1145,6 +1162,10 @@
     RETURNS TRIGGER AS $$
     BEGIN
         IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+            -- Skip updates for donor_biasa or when fulfillment_request_id is NULL
+            IF NEW.fulfillment_request_id IS NULL THEN
+                RETURN NEW;
+            END IF;
             UPDATE fulfillment_requests 
             SET 
                 confirmed_donors = (
@@ -1284,6 +1305,28 @@
         RETURN ROUND(GREATEST(frequency_score + recency_score - rejection_penalty, 0), 2);
     END;
     $$ LANGUAGE plpgsql IMMUTABLE;
+
+    -- Utility: Compute distance between a specific user (donor) and a PMI
+    -- Returns distance in kilometers (rounded to 2 decimals), or NULL if location missing
+    CREATE OR REPLACE FUNCTION compute_user_pmi_distance(
+        p_user_id UUID,
+        p_pmi_id UUID
+    )
+    RETURNS NUMERIC AS $$
+    DECLARE
+        u_loc GEOGRAPHY;
+        i_loc GEOGRAPHY;
+        dist_km NUMERIC;
+    BEGIN
+        SELECT location INTO u_loc FROM users WHERE id = p_user_id;
+        SELECT location INTO i_loc FROM institutions WHERE id = p_pmi_id;
+        IF u_loc IS NULL OR i_loc IS NULL THEN
+            RETURN NULL;
+        END IF;
+        dist_km := ROUND(CAST(ST_Distance(u_loc, i_loc) / 1000 AS NUMERIC), 2);
+        RETURN dist_km;
+    END;
+    $$ LANGUAGE plpgsql STABLE;
 
     -- Commitment Score (15% weight)
     CREATE OR REPLACE FUNCTION calculate_commitment_score(

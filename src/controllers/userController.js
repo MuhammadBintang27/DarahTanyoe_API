@@ -396,6 +396,37 @@ const sendNotification = async (req, res) => {
   }
 };
 
+// GET /users/:id - fetch single user profile
+const getUserProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return response.sendBadRequest(res, "User ID diperlukan");
+    }
+
+    const { data: user, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error fetching user:", error);
+      return response.sendInternalError(res, "Gagal mengambil data pengguna");
+    }
+
+    if (!user) {
+      return response.sendNotFound(res, "Pengguna tidak ditemukan");
+    }
+
+    return response.sendSuccess(res, { user });
+  } catch (err) {
+    console.error("getUserProfile error:", err);
+    return response.sendInternalError(res, "Terjadi kesalahan yang tidak terduga");
+  }
+};
+
 const updateUserProfile = async (req, res) => {
   try {
     const { id } = req.params;
@@ -488,5 +519,6 @@ export default {
   signInWithWeb,
   getUserPoints,
   sendNotification,
+  getUserProfile,
   updateUserProfile,
 };

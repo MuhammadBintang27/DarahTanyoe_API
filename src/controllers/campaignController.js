@@ -616,7 +616,7 @@ const getNearestCampaigns = async (req, res) => {
 
     const campaignIds = (notifiedCampaigns || [])
       .map(dc => dc.fulfillment_requests?.campaign_id)
-      .filter(id => id !== null);
+      .filter(id => typeof id === 'string' && id.length > 0);
 
     console.log(`📬 User received notifications for ${campaignIds.length} campaigns`);
 

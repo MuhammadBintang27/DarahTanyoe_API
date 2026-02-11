@@ -30,6 +30,9 @@ fulfillmentRouter.post("/donor/confirm", fulfillmentController.donorConfirm);
 // Donor Reject (Pendonor menolak)
 fulfillmentRouter.post("/donor/reject", fulfillmentController.donorReject);
 
+// Donor Cancel (Pendonor membatalkan setelah konfirmasi)
+fulfillmentRouter.post("/donor/cancel", fulfillmentController.donorCancel);
+
 // Complete donation
 fulfillmentRouter.post("/complete-donation", fulfillmentController.completeDonation);
 
