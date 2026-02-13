@@ -737,19 +737,87 @@
                     AND status IN ('confirmed','code_verified');
 
     -- ========================================
-    -- TRIGGERS FOR AUTOMATION
-    -- ========================================
+-- COMPOSITE INDEXES FOR OPTIMIZATION
+-- ========================================
+-- Advanced composite indexes for frequently queried column combinations
+-- Expected 2-10x faster on filtered queries
 
-    -- Function to update updated_at timestamp
-    CREATE OR REPLACE FUNCTION update_updated_at_column()
-    RETURNS TRIGGER AS $$
-    BEGIN
-        NEW.updated_at = NOW();
-        RETURN NEW;
-    END;
-    $$ language 'plpgsql';
+-- Blood Requests: Optimize partner/status filtering with timeline sorting
+CREATE INDEX IF NOT EXISTS idx_blood_requests_partner_status_created 
+ON blood_requests (partner_id, status, created_at DESC)
+WHERE partner_id IS NOT NULL;
 
-    -- Add triggers to tables with updated_at
+CREATE INDEX IF NOT EXISTS idx_blood_requests_requester_status_created 
+ON blood_requests (requester_id, status, created_at DESC)
+WHERE requester_id IS NOT NULL;
+
+-- Blood Stock: Optimize institution/type/status filtering
+CREATE INDEX IF NOT EXISTS idx_blood_stock_institution_type_status 
+ON blood_stock (institution_id, blood_type, status);
+
+CREATE INDEX IF NOT EXISTS idx_blood_stock_status_expiry 
+ON blood_stock (status, expiry_date)
+WHERE status IN ('available', 'reserved');
+
+-- Blood Allocation: Optimize request-based allocation lookups
+CREATE INDEX IF NOT EXISTS idx_blood_allocation_request_status 
+ON blood_allocation (blood_request_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_blood_allocation_stock_status 
+ON blood_allocation (blood_stock_id, status);
+
+-- Donor Confirmations: Optimize donor status tracking
+CREATE INDEX IF NOT EXISTS idx_donor_confirmations_donor_status_origin 
+ON donor_confirmations (donor_id, status, confirmation_origin);
+
+CREATE INDEX IF NOT EXISTS idx_donor_confirmations_fulfillment_status 
+ON donor_confirmations (fulfillment_request_id, status);
+
+-- Notifications: Optimize institution notification queries
+CREATE INDEX IF NOT EXISTS idx_notifications_institution_read_created 
+ON notifications (institution_id, is_read, created_at DESC)
+WHERE institution_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read_created 
+ON notifications (user_id, is_read, created_at DESC)
+WHERE user_id IS NOT NULL;
+
+-- Fulfillment Requests: Optimize PMI and status filtering
+CREATE INDEX IF NOT EXISTS idx_fulfillment_requests_pmi_status 
+ON fulfillment_requests (pmi_id, status, created_at DESC)
+WHERE pmi_id IS NOT NULL;
+
+-- Blood Campaigns: Optimize organizer and status filtering
+CREATE INDEX IF NOT EXISTS idx_blood_campaigns_organizer_status 
+ON blood_campaigns (organizer_id, status, start_date DESC);
+
+-- Pickup Schedules: Optimize date and status filtering
+CREATE INDEX IF NOT EXISTS idx_pickup_schedules_pmi_status_date 
+ON pickup_schedules (pmi_id, status, pickup_date)
+WHERE pmi_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_pickup_schedules_hospital_status_date 
+ON pickup_schedules (hospital_id, status, pickup_date)
+WHERE hospital_id IS NOT NULL;
+
+-- Blood Stock History: Optimize institution history queries
+CREATE INDEX IF NOT EXISTS idx_blood_stock_history_institution_type 
+ON blood_stock_history (institution_id, change_type, created_at DESC);
+
+-- ========================================
+-- TRIGGERS FOR AUTOMATION
+-- ========================================
+
+-- Function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Add triggers to tables with updated_at
     CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
     CREATE TRIGGER update_institutions_updated_at BEFORE UPDATE ON institutions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
     CREATE TRIGGER update_donations_updated_at BEFORE UPDATE ON donations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -1494,6 +1562,218 @@
     FROM users u
     WHERE u.active = true AND u.phone_verified = true
     GROUP BY u.blood_type;
+
+    -- ========================================
+    -- PERFORMANCE VIEWS
+    -- ========================================
+    -- Pre-computed views for complex joins and aggregations
+
+    -- View 1: Partners with Blood Stock Summary
+    CREATE OR REPLACE VIEW partners_with_stock_summary AS
+    SELECT 
+      i.id,
+      i.institution_name,
+      i.institution_type,
+      i.address,
+      i.phone_number,
+      i.email,
+      i.active,
+      i.location,
+      i.created_at,
+      i.updated_at,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'blood_type', bs.blood_type,
+            'total_quantity', bs.total_quantity,
+            'batch_count', bs.batch_count,
+            'oldest_expiry', bs.oldest_expiry
+          )
+          ORDER BY bs.blood_type
+        ) FILTER (WHERE bs.blood_type IS NOT NULL),
+        '[]'::json
+      ) AS blood_stock_summary
+    FROM institutions i
+    LEFT JOIN (
+      SELECT 
+        institution_id,
+        blood_type,
+        SUM(quantity) as total_quantity,
+        COUNT(*) as batch_count,
+        MIN(expiry_date) as oldest_expiry
+      FROM blood_stock
+      WHERE status = 'available'
+      GROUP BY institution_id, blood_type
+    ) bs ON i.id = bs.institution_id
+    WHERE i.active = true
+    GROUP BY i.id, i.institution_name, i.institution_type, i.address, 
+             i.phone_number, i.email, i.active, i.location, i.created_at, i.updated_at;
+
+    -- View 2: Blood Requests with Related Data
+    CREATE OR REPLACE VIEW blood_requests_detail AS
+    SELECT 
+      br.id,
+      br.blood_type,
+      br.quantity,
+      br.unit_type,
+      br.patient_name,
+      br.urgency_level,
+      br.medical_condition,
+      br.status,
+      br.requester_id,
+      br.partner_id,
+      br.created_at,
+      br.updated_at,
+      br.fulfilled_at,
+      br.fulfilled_by,
+      json_build_object(
+        'id', req_inst.id,
+        'name', req_inst.institution_name,
+        'type', req_inst.institution_type,
+        'address', req_inst.address,
+        'phone', req_inst.phone_number
+      ) as requester,
+      json_build_object(
+        'id', partner_inst.id,
+        'name', partner_inst.institution_name,
+        'type', partner_inst.institution_type,
+        'address', partner_inst.address,
+        'phone', partner_inst.phone_number
+      ) as partner,
+      COALESCE(alloc.total_allocated, 0) as total_allocated,
+      COALESCE(alloc.total_picked_up, 0) as total_picked_up,
+      COALESCE(alloc.allocation_count, 0) as allocation_count
+    FROM blood_requests br
+    LEFT JOIN institutions req_inst ON br.requester_id = req_inst.id
+    LEFT JOIN institutions partner_inst ON br.partner_id = partner_inst.id
+    LEFT JOIN (
+      SELECT 
+        blood_request_id,
+        SUM(quantity_allocated) as total_allocated,
+        SUM(quantity_picked_up) as total_picked_up,
+        COUNT(*) as allocation_count
+      FROM blood_allocation
+      WHERE status NOT IN ('cancelled', 'expired')
+      GROUP BY blood_request_id
+    ) alloc ON br.id = alloc.blood_request_id;
+
+    -- View 3: Allocation with Stock Details
+    CREATE OR REPLACE VIEW allocations_with_stock AS
+    SELECT 
+      ba.id,
+      ba.blood_request_id,
+      ba.blood_stock_id,
+      ba.quantity_allocated,
+      ba.quantity_picked_up,
+      ba.status,
+      ba.allocated_at,
+      ba.picked_up_at,
+      ba.cancelled_at,
+      ba.cancellation_reason,
+      json_build_object(
+        'id', bs.id,
+        'batch_number', bs.batch_number,
+        'blood_type', bs.blood_type,
+        'expiry_date', bs.expiry_date,
+        'quantity', bs.quantity,
+        'status', bs.status,
+        'institution_id', bs.institution_id
+      ) as blood_stock,
+      json_build_object(
+        'id', fr.id,
+        'patient_name', fr.patient_name,
+        'blood_type', fr.blood_type
+      ) as fulfillment_request
+    FROM blood_allocation ba
+    LEFT JOIN blood_stock bs ON ba.blood_stock_id = bs.id
+    LEFT JOIN fulfillment_requests fr ON ba.fulfillment_request_id = fr.id;
+
+    -- View 4: Donor Confirmations with User Details
+    CREATE OR REPLACE VIEW donor_confirmations_with_users AS
+    SELECT 
+      dc.id,
+      dc.fulfillment_request_id,
+      dc.donor_id,
+      dc.status,
+      dc.confirmation_origin,
+      dc.confirmed_at,
+      dc.code_verified_at,
+      dc.created_at,
+      json_build_object(
+        'id', u.id,
+        'full_name', u.full_name,
+        'phone_number', u.phone_number,
+        'blood_type', u.blood_type,
+        'last_donation_date', u.last_donation_date,
+        'total_donations', u.total_donations
+      ) as donor
+    FROM donor_confirmations dc
+    LEFT JOIN users u ON dc.donor_id = u.id;
+
+    -- View 5: Dashboard Summary Data
+    CREATE OR REPLACE VIEW dashboard_pmi_summary AS
+    SELECT 
+      i.id as institution_id,
+      i.institution_name,
+      json_build_object(
+        'total_units', COALESCE(stock_sum.total_units, 0),
+        'by_type', COALESCE(stock_sum.by_type, '[]'::json)
+      ) as blood_stock,
+      json_build_object(
+        'total_requests', COALESCE(req_sum.total_requests, 0),
+        'pending', COALESCE(req_sum.pending, 0),
+        'approved', COALESCE(req_sum.approved, 0),
+        'completed', COALESCE(req_sum.completed, 0)
+      ) as requests,
+      json_build_object(
+        'total_donations', COALESCE(donor_sum.total_donations, 0),
+        'this_month', COALESCE(donor_sum.this_month, 0)
+      ) as donations
+    FROM institutions i
+    LEFT JOIN (
+      SELECT 
+        institution_id,
+        SUM(total_qty) as total_units,
+        json_agg(json_build_object('blood_type', blood_type, 'quantity', total_qty)) as by_type
+      FROM (
+        SELECT 
+          institution_id,
+          blood_type,
+          SUM(quantity) as total_qty
+        FROM blood_stock
+        WHERE status = 'available'
+        GROUP BY institution_id, blood_type
+      ) stock_group
+      GROUP BY institution_id
+    ) stock_sum ON i.id = stock_sum.institution_id
+    LEFT JOIN (
+      SELECT 
+        partner_id,
+        COUNT(*) as total_requests,
+        COUNT(*) FILTER (WHERE status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE status = 'approved') as approved,
+        COUNT(*) FILTER (WHERE status = 'completed') as completed
+      FROM blood_requests
+      WHERE created_at >= NOW() - INTERVAL '90 days'
+      GROUP BY partner_id
+    ) req_sum ON i.id = req_sum.partner_id
+    LEFT JOIN (
+      SELECT 
+        bs.institution_id,
+        COUNT(*) as total_donations,
+        COUNT(*) FILTER (WHERE bs.created_at >= DATE_TRUNC('month', NOW())) as this_month
+      FROM blood_stock bs
+      WHERE bs.donation_id IS NOT NULL
+      GROUP BY bs.institution_id
+    ) donor_sum ON i.id = donor_sum.institution_id
+    WHERE i.institution_type = 'pmi';
+
+    -- Grant permissions for views
+    GRANT SELECT ON partners_with_stock_summary TO authenticated;
+    GRANT SELECT ON blood_requests_detail TO authenticated;
+    GRANT SELECT ON allocations_with_stock TO authenticated;
+    GRANT SELECT ON donor_confirmations_with_users TO authenticated;
+    GRANT SELECT ON dashboard_pmi_summary TO authenticated;
 
     -- Comments for documentation
     COMMENT ON TABLE fulfillment_requests IS 'Tracks blood request fulfillment through donor campaigns';

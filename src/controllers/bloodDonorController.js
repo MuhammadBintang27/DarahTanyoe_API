@@ -71,38 +71,6 @@ const getBloodDonorByUserId = (req, res) => {
     });
 };
 
-// const patchBloodDonorStatus = async (req, res) => {
-//   const { id } = req.params;
-//   const { status } = req.body;
-
-//   if (!status) {
-//     return response.sendBadRequest(res, "Status is required");
-//   }
-
-//   const validStatuses = ["on_progress", "completed", "cancelled"];
-//   if (!validStatuses.includes(status)) {
-//     return response.sendBadRequest(res, "Invalid status value");
-//   }
-
-//   try {
-//     const { error } = await supabase
-//       .from("donation_offers")
-//       .update({ status })
-//       .eq("id", id);
-
-//     if (error) {
-//       return response.sendInternalError(res, error.message);
-//     }
-
-//     return response.sendSuccess(res, {
-//       message: "Blood donor status updated successfully",
-//     });
-//   } catch (error) {
-//     console.error("Update blood donor status error:", error);
-//     return response.sendInternalError(res, "An unexpected error occurred");
-//   }
-// };
-
 const patchBloodDonorStatus = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;

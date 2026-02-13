@@ -1,44 +1,9 @@
-import axios from "axios";
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import { DateTime } from "luxon";
 import notificationService from "../services/notificationService.js";
 import { invalidate } from "../utils/cache.js";
-
-/**
- * Extract latitude & longitude dari PostGIS location field
- * Handles:
- * - WKT format: "POINT(95.367856 5.569069)"
- * - GeoJSON format: {type: "Point", coordinates: [lng, lat]}
- */
-const extractCoordinatesFromLocation = (location) => {
-  if (!location) return null;
-
-  try {
-    // Format 1: WKT "POINT(longitude latitude)"
-    if (typeof location === 'string') {
-      const wktMatch = location.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/i);
-      if (wktMatch) {
-        return {
-          longitude: parseFloat(wktMatch[1]),
-          latitude: parseFloat(wktMatch[2])
-        };
-      }
-    }
-
-    // Format 2: GeoJSON {type: "Point", coordinates: [lng, lat]}
-    if (typeof location === 'object' && location.type === 'Point' && Array.isArray(location.coordinates)) {
-      return {
-        longitude: location.coordinates[0],
-        latitude: location.coordinates[1]
-      };
-    }
-  } catch (e) {
-    console.warn('⚠️ Error extracting coordinates from location:', e.message);
-  }
-
-  return null;
-};
+import { extractCoordinatesFromLocation } from "../utils/coordinates.js";
 
 const createBloodReq = async (req, res) => {
   const requestBody = req.body;

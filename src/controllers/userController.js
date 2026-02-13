@@ -1,23 +1,16 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
-import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { sendWhatsAppOTP, sendWhatsAppNotification } from "../services/whatsappService.js";
-// import dotenv from "dotenv";
-
-// dotenv.config();
+import { generateOTP, getOTPExpiry } from "../utils/otp.js";
+import { getOrSet, invalidate } from "../utils/cache.js";
 
 // Initialize new Supabase client for OTP operations
 const supa = createClient(
   process.env.SUPABASE_PROJECT_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-
-// Function to generate OTP (unchanged)
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
 
 const signInWithPhone = async (req, res) => {
   const { phone } = req.body;
@@ -31,7 +24,7 @@ const signInWithPhone = async (req, res) => {
     const otp = generateOTP();
 
     // Set expiry time (5 minutes)
-    const expiryTime = new Date(Date.now() + 5 * 60 * 1000);
+    const expiryTime = getOTPExpiry(5);
 
     // Delete any existing OTP records for this phone number first
     console.log("🔍 DEBUG signInWithPhone - Deleting existing OTP records for phone:", phone);
@@ -214,13 +207,8 @@ const getUserPoints = async (req, res) => {
       .eq("id", userId)
       .single();
 
-    if (error) {
-      console.error("Error fetching user points:", error);
-      return response.sendInternalError(res, "Gagal mengambil poin pengguna");
-    }
-
-    if (!data) {
-      return response.sendNotFound(res, "Pengguna tidak ditemukan");
+    if (error || !data) {
+      return response.sendNotFound(res, "User not found");
     }
 
     return response.sendSuccess(res, {
@@ -407,17 +395,17 @@ const getUserProfile = async (req, res) => {
 
     const { data: user, error } = await supabase
       .from("users")
-      .select("*")
+      .select("id, full_name, phone_number, email, blood_type, address, date_of_birth, total_donations, total_points, last_donation_date, health_notes, notifications_enabled, created_at")
       .eq("id", id)
       .maybeSingle();
 
     if (error) {
       console.error("Error fetching user:", error);
-      return response.sendInternalError(res, "Gagal mengambil data pengguna");
+      return response.sendInternalError(res, "Failed to fetch user");
     }
 
     if (!user) {
-      return response.sendNotFound(res, "Pengguna tidak ditemukan");
+      return response.sendNotFound(res, "User not found");
     }
 
     return response.sendSuccess(res, { user });

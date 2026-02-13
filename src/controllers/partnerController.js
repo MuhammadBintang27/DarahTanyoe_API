@@ -1,6 +1,5 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
-import axios from "axios";
 import notificationService from "../services/notificationService.js";
 import { getOrSet } from "../utils/cache.js";
 import { invalidateForRequest } from "../utils/invalidation.js";
@@ -13,25 +12,42 @@ const createPartner = async (req, res) => {
 };
 
 const getPatnerWithBloodStock = async (req, res) => {
+  const { page = 1, limit = 20 } = req.query;
+  
   try {
-    const key = "partners:with_stock";
+    // Validate pagination params
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(Math.max(1, parseInt(limit)), 100); // Max 100 per page
+    const offset = (pageNum - 1) * limitNum;
+    
+    const key = `partners:with_stock:page${pageNum}:limit${limitNum}`;
     const ttl = 600; // 10 minutes for relatively static list
 
-    const institutions = await getOrSet(key, ttl, async () => {
-      // Get all institutions (both hospital and PMI)
+    const result = await getOrSet(key, ttl, async () => {
+      // Get total count
+      const { count: totalCount } = await supabase
+        .from("institutions")
+        .select("*", { count: 'exact', head: true })
+        .eq("active", true);
+
+      // Get paginated institutions
       const { data: dataInstitutions, error } = await supabase
         .from("institutions")
-        .select("*")
-        .eq("active", true);
+        .select("id, institution_name, institution_type, address, phone_number, active")
+        .eq("active", true)
+        .order("institution_name")
+        .range(offset, offset + limitNum - 1);
 
       if (error) {
         throw new Error(error.message);
       }
 
-      // Get all blood stock
+      // Get blood stock only for returned institutions
+      const institutionIds = dataInstitutions.map(i => i.id);
       const { data: dataBloodStock, error: errorBloodStock } = await supabase
         .from("blood_stock")
-        .select("*")
+        .select("institution_id, blood_type, quantity, expiry_date")
+        .in("institution_id", institutionIds)
         .eq("status", "available");
 
       if (errorBloodStock) {
@@ -39,7 +55,7 @@ const getPatnerWithBloodStock = async (req, res) => {
       }
 
       // Map institutions with their blood stock
-      return dataInstitutions.map((institution) => {
+      const institutions = dataInstitutions.map((institution) => {
         const bloodStock = dataBloodStock.filter(
           (stock) => stock.institution_id === institution.id
         );
@@ -56,11 +72,22 @@ const getPatnerWithBloodStock = async (req, res) => {
               : [],
         };
       });
+
+      return {
+        data: institutions,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limitNum),
+          hasMore: offset + limitNum < totalCount
+        }
+      };
     });
 
     return response.sendSuccess(res, {
-      data: institutions,
       message: "Berhasil memuat daftar institusi dengan stok darah",
+      ...result
     });
   } catch (error) {
     console.error("Get institutions error:", error);

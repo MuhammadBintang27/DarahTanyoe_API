@@ -1,21 +1,7 @@
 import supabase from '../config/db.js';
+import response from '../helpers/responses.js';
 import { invalidate } from '../utils/cache.js';
 import { invalidateForRequest, invalidateForPartnerStock } from '../utils/invalidation.js';
-
-const successResponse = (res, data, message, statusCode = 200) => {
-  return res.status(statusCode).json({
-    success: true,
-    message,
-    data
-  });
-};
-
-const errorResponse = (res, message, statusCode = 500) => {
-  return res.status(statusCode).json({
-    success: false,
-    message
-  });
-};
 
 /**
  * ============================================
@@ -69,14 +55,17 @@ export const getPickupSchedules = async (req, res) => {
 
     if (error) {
       console.error('Error fetching pickup schedules:', error);
-      return errorResponse(res, 'Error fetching pickup schedules', 500);
+      return response.sendServerError(res, 'Error fetching pickup schedules');
     }
 
-    return successResponse(res, schedules, 'Pickup schedules retrieved successfully');
+    return response.sendSuccess(res, {
+      message: 'Pickup schedules retrieved successfully',
+      data: schedules
+    });
 
   } catch (error) {
     console.error('Error in getPickupSchedules:', error);
-    return errorResponse(res, 'Internal server error', 500);
+    return response.sendServerError(res, 'Internal server error');
   }
 };
 
@@ -92,7 +81,7 @@ export const confirmPickup = async (req, res) => {
     const { uniqueCode, pmiId } = req.body;
 
     if (!uniqueCode || !pmiId) {
-      return errorResponse(res, 'Unique code and PMI ID are required', 400);
+      return response.sendBadRequest(res, 'Unique code and PMI ID are required');
     }
 
     // Get pickup schedule
@@ -103,22 +92,22 @@ export const confirmPickup = async (req, res) => {
       .single();
 
     if (scheduleError || !schedule) {
-      return errorResponse(res, 'Pickup schedule not found', 404);
+      return response.sendNotFound(res, 'Pickup schedule not found');
     }
 
     // Verify PMI is the owner
     if (schedule.pmi_id !== pmiId) {
-      return errorResponse(res, 'You are not authorized to confirm this pickup', 403);
+      return response.sendForbidden(res, 'You are not authorized to confirm this pickup');
     }
 
     // Verify status
     if (schedule.status === 'completed') {
-      return errorResponse(res, 'This pickup has already been completed', 400);
+      return response.sendBadRequest(res, 'This pickup has already been completed');
     }
 
     // Verify unique code
     if (schedule.unique_code !== uniqueCode.toUpperCase().trim()) {
-      return errorResponse(res, 'Invalid unique code', 400);
+      return response.sendBadRequest(res, 'Invalid unique code');
     }
 
     // Update pickup schedule status
@@ -134,7 +123,7 @@ export const confirmPickup = async (req, res) => {
 
     if (updateError) {
       console.error('Error updating pickup schedule:', updateError);
-      return errorResponse(res, 'Error confirming pickup', 500);
+      return response.sendServerError(res, 'Error confirming pickup');
     }
 
     // ✅ Get blood stocks yang digunakan untuk record history (jika dari free_stock)
@@ -199,7 +188,7 @@ export const confirmPickup = async (req, res) => {
 
     if (requestError) {
       console.error('Error updating request status:', requestError);
-      return errorResponse(res, 'Error updating request status', 500);
+      return response.sendServerError(res, 'Error updating request status');
     }
 
     // Centralized invalidation
@@ -238,14 +227,20 @@ export const confirmPickup = async (req, res) => {
     }
 
     if (fetchError) {
-      return successResponse(res, null, 'Pickup berhasil dikonfirmasi');
+      return response.sendSuccess(res, {
+        message: 'Pickup berhasil dikonfirmasi',
+        data: null
+      });
     }
 
-    return successResponse(res, updatedSchedule, 'Pickup berhasil dikonfirmasi. Permintaan ditandai selesai.');
+    return response.sendSuccess(res, {
+      message: 'Pickup berhasil dikonfirmasi. Permintaan ditandai selesai.',
+      data: updatedSchedule
+    });
 
   } catch (error) {
     console.error('Error in confirmPickup:', error);
-    return errorResponse(res, 'Internal server error', 500);
+    return response.sendServerError(res, 'Internal server error');
   }
 };
 

@@ -1,81 +1,7 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import notificationService from "../services/notificationService.js";
-
-/**
- * Extract latitude & longitude dari PostGIS location field (EWKB binary format)
- * Handles:
- * - EWKB binary string format: "0101000020E61000004C2622F38AD75740594F9CF8B9461640"
- * - WKT format: "POINT(95.367856 5.569069)"
- * - GeoJSON format: {type: "Point", coordinates: [lng, lat]}
- */
-const extractCoordinatesFromLocation = (location) => {
-  if (!location) return null;
-
-  try {
-    console.log(`📍 Extracting coordinates from location, type: ${typeof location}`);
-    
-    // Format 1: WKT "POINT(longitude latitude)"
-    if (typeof location === 'string') {
-      // Try WKT format first
-      const wktMatch = location.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/i);
-      if (wktMatch) {
-        const result = {
-          longitude: parseFloat(wktMatch[1]),
-          latitude: parseFloat(wktMatch[2])
-        };
-        console.log(`✅ WKT parsed: lon=${result.longitude}, lat=${result.latitude}`);
-        return result;
-      }
-
-      // Try EWKB hex format (any valid hex string with length 40+)
-      // EWKB is: 1 byte endian + 4 bytes geometry type + 8 bytes SRID (optional) + 8 bytes lon + 8 bytes lat
-      if (/^[0-9a-f]+$/i.test(location) && location.length >= 40) {
-        console.log(`🔄 EWKB hex detected, length: ${location.length}`);
-        try {
-          const buffer = Buffer.from(location, 'hex');
-          console.log(`📦 Buffer created, length: ${buffer.length} bytes`);
-          
-          const endian = buffer[0]; // 0 = big, 1 = little
-          const littleEndian = endian === 1;
-          console.log(`🔀 Endian: ${littleEndian ? 'little' : 'big'}`);
-          
-          // Coordinates start at byte 9 (after SRID and geometry type)
-          // Each coordinate is 8 bytes (double precision)
-          if (buffer.length >= 25) {
-            const longitude = buffer.readDoubleLE(9);
-            const latitude = buffer.readDoubleLE(17);
-            console.log(`✅ EWKB parsed: lon=${longitude}, lat=${latitude}`);
-            return {
-              longitude,
-              latitude
-            };
-          } else {
-            console.warn(`⚠️ Buffer too short: ${buffer.length} bytes, need 25+`);
-          }
-        } catch (bufferError) {
-          console.error(`❌ Failed to parse EWKB buffer:`, bufferError.message);
-        }
-      }
-    }
-
-    // Format 2: GeoJSON {type: "Point", coordinates: [lng, lat]}
-    if (typeof location === 'object' && location.type === 'Point' && Array.isArray(location.coordinates)) {
-      const result = {
-        longitude: location.coordinates[0],
-        latitude: location.coordinates[1]
-      };
-      console.log(`✅ GeoJSON parsed: lon=${result.longitude}, lat=${result.latitude}`);
-      return result;
-    }
-
-    console.warn(`⚠️ Location format not recognized: ${typeof location === 'string' ? location.substring(0, 50) : location}`);
-  } catch (e) {
-    console.error('❌ Error extracting coordinates from location:', e.message);
-  }
-
-  return null;
-};
+import { extractCoordinatesFromLocation } from "../utils/coordinates.js";
 
 /**
  * Create Blood Campaign
@@ -296,13 +222,28 @@ const createCampaign = async (req, res) => {
  * Get all campaigns
  */
 const getAllCampaigns = async (req, res) => {
-  const { organizer_id, status, blood_type } = req.query;
+  const { organizer_id, status, blood_type, page = 1, limit = 20 } = req.query;
 
   try {
+    // Validate pagination params
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(Math.max(1, parseInt(limit)), 100); // Max 100 per page
+    const offset = (pageNum - 1) * limitNum;
+
     let query = supabase
       .from("blood_campaigns")
       .select(`
-        *,
+        id,
+        title,
+        description,
+        start_date,
+        end_date,
+        status,
+        target_quantity,
+        target_donors,
+        location,
+        address,
+        created_at,
         organizer:institutions!blood_campaigns_organizer_id_fkey(
           id,
           institution_name,
@@ -314,13 +255,14 @@ const getAllCampaigns = async (req, res) => {
           quantity,
           urgency_level
         )
-      `)
-      .order("created_at", { ascending: false });
+      `, { count: 'exact' })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
     if (organizer_id) query = query.eq("organizer_id", organizer_id);
     if (status) query = query.eq("status", status);
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (error) {
       return response.sendBadRequest(res, error.message);
@@ -328,7 +270,14 @@ const getAllCampaigns = async (req, res) => {
 
     return response.sendSuccess(res, {
       message: "Daftar Pemenuhan Darah berhasil dimuat",
-      data
+      data,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: count,
+        totalPages: Math.ceil(count / limitNum),
+        hasMore: offset + limitNum < count
+      }
     });
   } catch (error) {
     console.error("Error getting campaigns:", error);

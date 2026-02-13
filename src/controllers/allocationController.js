@@ -332,36 +332,64 @@ const getBloodWithFreeStock = async (req, res) => {
 
     console.log(`📍 PMI for this request: ${pmiId}`);
 
-    // Get allocated blood (both allocated and partial_pickup status) - FROM ALL REQUESTS in this PMI
-    const { data: allocatedBlood, error: allocError } = await supabase
-      .from("blood_allocation")
-      .select(`
-        id,
-        blood_request_id,
-        quantity_allocated,
-        quantity_picked_up,
-        blood_stock!blood_allocation_blood_stock_id_fkey(
+    // ✅ OPTIMIZED: Fetch allocated blood and free stock in parallel
+    const [
+      { data: allocatedBlood, error: allocError },
+      { data: freeStock, error: stockError }
+    ] = await Promise.all([
+      // Get allocated blood (both allocated and partial_pickup status) - FROM ALL REQUESTS in this PMI
+      supabase
+        .from("blood_allocation")
+        .select(`
+          id,
+          blood_request_id,
+          quantity_allocated,
+          quantity_picked_up,
+          blood_stock!blood_allocation_blood_stock_id_fkey(
+            id,
+            batch_number,
+            blood_type,
+            expiry_date,
+            quantity,
+            status,
+            institution_id
+          ),
+          fulfillment_request:fulfillment_requests(
+            id,
+            patient_name,
+            blood_type
+          )
+        `)
+        .eq("blood_stock.institution_id", pmiId)
+        .eq("blood_stock.blood_type", request.blood_type)
+        .in("status", ["allocated", "partial_pickup"]),
+      
+      // Get free stock (not in allocation, correct blood type, available status, from correct PMI)
+      supabase
+        .from("blood_stock")
+        .select(`
           id,
           batch_number,
           blood_type,
           expiry_date,
           quantity,
-          status,
-          institution_id
-        ),
-        fulfillment_request:fulfillment_requests(
-          id,
-          patient_name,
-          blood_type
-        )
-      `)
-      .eq("blood_stock.institution_id", pmiId)
-      .eq("blood_stock.blood_type", request.blood_type)
-      .in("status", ["allocated", "partial_pickup"]);
+          institution_id,
+          donation_id,
+          created_at
+        `)
+        .eq("blood_type", request.blood_type)
+        .eq("status", "available")
+        .eq("institution_id", pmiId)
+    ]);
 
     if (allocError) {
       console.error("❌ Error fetching allocations:", allocError);
       return response.sendBadRequest(res, allocError.message);
+    }
+
+    if (stockError) {
+      console.error("❌ Error fetching free stock:", stockError);
+      return response.sendBadRequest(res, stockError.message);
     }
 
     // ✅ DEBUG: Log allocation details  
@@ -381,30 +409,6 @@ const getBloodWithFreeStock = async (req, res) => {
     const usedStockIds = (allocatedBlood || []).map(a => a.blood_stock.id);
 
     console.log(`🔍 Used Stock IDs from allocations:`, usedStockIds);
-    console.log(`🔍 Checking each stock against allocation:`);
-
-    // Get free stock (not in allocation, correct blood type, available status, from correct PMI)
-    const { data: freeStock, error: stockError } = await supabase
-      .from("blood_stock")
-      .select(`
-        id,
-        batch_number,
-        blood_type,
-        expiry_date,
-        quantity,
-        institution_id,
-        donation_id,
-        created_at
-      `)
-      .eq("blood_type", request.blood_type)
-      .eq("status", "available")
-      .eq("institution_id", pmiId);
-
-    if (stockError) {
-      console.error("❌ Error fetching free stock:", stockError);
-      return response.sendBadRequest(res, stockError.message);
-    }
-
     console.log(`📊 Total available stock in blood_stock:`, freeStock?.length || 0);
     console.log(`📊 All available stock in PMI ${pmiId}:`);
     freeStock?.forEach(s => {
@@ -743,16 +747,20 @@ const confirmPickupWithFreeStock = async (req, res) => {
       console.warn('⚠️ Could not complete fulfillment/campaign on pickup creation:', e?.message);
     }
 
-    // Update allocations
-    const allocationUpdates = [];
-    for (const alloc of allocations) {
-      // ✅ DEBUG: Check allocation state BEFORE pickup
-      const { data: allocBefore } = await supabase
-        .from("blood_allocation")
-        .select("id, quantity_allocated, quantity_picked_up, blood_stock_id, status")
-        .eq("id", alloc.allocation_id)
-        .single();
+    // ✅ OPTIMIZED: Pre-fetch all allocation data before processing
+    const allocationIds = allocations.map(a => a.allocation_id);
+    const { data: allocsBefore } = await supabase
+      .from("blood_allocation")
+      .select("id, quantity_allocated, quantity_picked_up, blood_stock_id, status, blood_stock:blood_stock(id, institution_id, blood_type)")
+      .in("id", allocationIds);
 
+    // Create a map for quick lookup
+    const allocsBeforeMap = new Map(allocsBefore?.map(a => [a.id, a]) || []);
+
+    // ✅ OPTIMIZED: Update all allocations in parallel
+    const allocationUpdatePromises = allocations.map(async (alloc) => {
+      const allocBefore = allocsBeforeMap.get(alloc.allocation_id);
+      
       console.log(`📊 Allocation state BEFORE pickup:`, {
         allocation_id: alloc.allocation_id,
         quantity_allocated: allocBefore?.quantity_allocated,
@@ -762,7 +770,7 @@ const confirmPickupWithFreeStock = async (req, res) => {
         trying_to_pick: alloc.quantity_picked_up
       });
 
-      const { data: updated, error: updateError } = await supabase
+      const { error: updateError } = await supabase
         .rpc('complete_allocation_pickup', {
           p_allocation_id: alloc.allocation_id,
           p_quantity_picked_up: alloc.quantity_picked_up
@@ -773,70 +781,69 @@ const confirmPickupWithFreeStock = async (req, res) => {
         throw updateError;
       }
 
-      // ✅ Get blood stock details AFTER allocation update for history logging
-      console.log(`🔍 Getting blood_stock for stock_id: ${allocBefore?.blood_stock_id}`);
-      
-      const { data: bloodStock, error: stockError } = await supabase
-        .from("blood_stock")
-        .select("id, institution_id, blood_type, quantity, status")
-        .eq("id", allocBefore?.blood_stock_id)
-        .single();
-
-      console.log(`📦 Blood stock after RPC:`, {
-        stock_id: allocBefore?.blood_stock_id,
-        found: bloodStock ? 'yes' : 'no',
-        status: bloodStock?.status,
-        error: stockError
-      });
-
-      if (bloodStock && bloodStock.status === 'used') {
-        console.log(`✅ Allocation fully picked up, recording to history...`);
-        
-        // ✅ Insert to blood_stock_history for allocation pickup
-        const { error: historyError } = await supabase
-          .from("blood_stock_history")
-          .insert({
-            institution_id: bloodStock.institution_id,
-            blood_type: bloodStock.blood_type,
-            change_type: "used",
-            quantity_change: alloc.quantity_picked_up,
-            previous_quantity: allocBefore?.quantity_allocated || 0,
-            new_quantity: (allocBefore?.quantity_allocated || 0) - alloc.quantity_picked_up,
-            notes: `Allocation di-pickup dan dikonfirmasi dengan kode unik untuk request #${blood_request_id.substring(0, 8)}`,
-            created_by: bloodStock.institution_id  // ✅ Set to institution_id yang punya stok
-          });
-
-        if (historyError) {
-          console.error(`❌ Error recording blood_stock_history for allocation ${alloc.allocation_id}:`, {
-            code: historyError.code,
-            message: historyError.message,
-            details: historyError.details
-          });
-          // Don't throw - let it continue
-        } else {
-          console.log(`✅ Blood stock history recorded for allocation ${alloc.allocation_id}`);
-        }
-      } else {
-        console.warn(`⚠️ Allocation not fully picked up or stock not found (status: ${bloodStock?.status})`);
-      }
-
-      allocationUpdates.push({
+      return {
         allocation_id: alloc.allocation_id,
-        success: true
-      });
+        success: true,
+        blood_stock: allocBefore?.blood_stock,
+        quantity_picked_up: alloc.quantity_picked_up,
+        quantity_allocated: allocBefore?.quantity_allocated
+      };
+    });
+
+    const allocationUpdates = await Promise.all(allocationUpdatePromises);
+
+    // ✅ OPTIMIZED: Get updated stock statuses in batch
+    const stockIds = allocationUpdates.map(u => u.blood_stock?.id).filter(Boolean);
+    const { data: updatedStocks } = await supabase
+      .from("blood_stock")
+      .select("id, status")
+      .in("id", stockIds);
+    
+    const stockStatusMap = new Map(updatedStocks?.map(s => [s.id, s.status]) || []);
+
+    // ✅ OPTIMIZED: Batch insert history records
+    const historyRecords = allocationUpdates
+      .filter(update => {
+        const stockId = update.blood_stock?.id;
+        return stockId && stockStatusMap.get(stockId) === 'used';
+      })
+      .map(update => ({
+        institution_id: update.blood_stock.institution_id,
+        blood_type: update.blood_stock.blood_type,
+        change_type: "used",
+        quantity_change: update.quantity_picked_up,
+        previous_quantity: update.quantity_allocated || 0,
+        new_quantity: (update.quantity_allocated || 0) - update.quantity_picked_up,
+        notes: `Allocation di-pickup dan dikonfirmasi dengan kode unik untuk request #${blood_request_id.substring(0, 8)}`,
+        created_by: update.blood_stock.institution_id
+      }));
+
+    if (historyRecords.length > 0) {
+      const { error: historyError } = await supabase
+        .from("blood_stock_history")
+        .insert(historyRecords);
+
+      if (historyError) {
+        console.error(`❌ Error batch inserting allocation history:`, historyError);
+      } else {
+        console.log(`✅ ${historyRecords.length} allocation history records inserted`);
+      }
     }
 
     console.log(`✅ ${allocationUpdates.length} allocations updated`);
 
-    // Update free stock to 'used'
-    const freeStockUpdates = [];
-    for (const stock of free_stock) {
-      // First, get current stock quantity before update
-      const { data: stockBefore } = await supabase
-        .from("blood_stock")
-        .select("id, quantity, status, institution_id")
-        .eq("id", stock.stock_id)
-        .single();
+    // ✅ OPTIMIZED: Pre-fetch all free stock data before processing
+    const freeStockIds = free_stock.map(s => s.stock_id);
+    const { data: stocksBefore } = await supabase
+      .from("blood_stock")
+      .select("id, quantity, status, institution_id")
+      .in("id", freeStockIds);
+
+    const stocksBeforeMap = new Map(stocksBefore?.map(s => [s.id, s]) || []);
+
+    // ✅ OPTIMIZED: Update all free stocks in parallel
+    const freeStockUpdatePromises = free_stock.map(async (stock) => {
+      const stockBefore = stocksBeforeMap.get(stock.stock_id);
 
       console.log(`📊 Free stock before update:`, {
         stock_id: stock.stock_id,
@@ -872,35 +879,40 @@ const confirmPickupWithFreeStock = async (req, res) => {
         status_after: updated?.status
       });
 
-      // ✅ Insert to blood_stock_history for audit trail
+      return {
+        stock_id: stock.stock_id,
+        success: true,
+        institution_id: stockBefore?.institution_id,
+        quantity_before: stockBefore?.quantity || 0,
+        quantity_change: stock.quantity_picked_up,
+        new_quantity: newQuantity
+      };
+    });
+
+    const freeStockUpdates = await Promise.all(freeStockUpdatePromises);
+
+    // ✅ OPTIMIZED: Batch insert free stock history records
+    const freeStockHistoryRecords = freeStockUpdates.map(update => ({
+      institution_id: update.institution_id,
+      blood_type: request.blood_type,
+      change_type: "used",
+      quantity_change: update.quantity_change,
+      previous_quantity: update.quantity_before,
+      new_quantity: update.new_quantity,
+      notes: `Free stock digunakan untuk blood request #${blood_request_id.substring(0, 8)} - Pickup jadwal: ${pickupDate}`,
+      created_by: update.institution_id
+    }));
+
+    if (freeStockHistoryRecords.length > 0) {
       const { error: historyError } = await supabase
         .from("blood_stock_history")
-        .insert({
-          institution_id: stockBefore?.institution_id,
-          blood_type: request.blood_type,
-          change_type: "used",
-          quantity_change: stock.quantity_picked_up,
-          previous_quantity: stockBefore?.quantity || 0,
-          new_quantity: newQuantity,
-          notes: `Free stock digunakan untuk blood request #${blood_request_id.substring(0, 8)} - Pickup jadwal: ${pickupDate}`,
-          created_by: stockBefore?.institution_id  // ✅ Set to institution_id yang punya stok (from FK constraint)
-        });
+        .insert(freeStockHistoryRecords);
 
       if (historyError) {
-        console.error(`❌ Error recording blood_stock_history for ${stock.stock_id}:`, {
-          code: historyError.code,
-          message: historyError.message,
-          details: historyError.details
-        });
-        // Don't throw - let it continue
+        console.error(`❌ Error batch inserting free stock history:`, historyError);
       } else {
-        console.log(`✅ Blood stock history recorded for free stock ${stock.stock_id}`);
+        console.log(`✅ ${freeStockHistoryRecords.length} free stock history records inserted`);
       }
-
-      freeStockUpdates.push({
-        stock_id: stock.stock_id,
-        success: true
-      });
     }
 
     console.log(`✅ ${freeStockUpdates.length} free stocks marked as used`);

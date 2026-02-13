@@ -631,28 +631,50 @@ const createFulfillmentRequest = async (req, res) => {
  * Get all fulfillment requests
  */
 const getAllFulfillmentRequests = async (req, res) => {
-  const { pmi_id, status, blood_type } = req.query;
+  const { pmi_id, status, blood_type, page = 1, limit = 20 } = req.query;
 
   try {
+    // Validate pagination params
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(Math.max(1, parseInt(limit)), 100); // Max 100 per page
+    const offset = (pageNum - 1) * limitNum;
+
     let query = supabase
       .from("fulfillment_requests")
       .select(`
-        *,
-        blood_request:blood_requests!fulfillment_requests_blood_request_id_fkey(*),
-        campaign:blood_campaigns!fulfillment_requests_campaign_id_fkey(*),
+        id,
+        blood_type,
+        patient_name,
+        urgency_level,
+        status,
+        quantity_needed,
+        quantity_collected,
+        created_at,
+        blood_request:blood_requests!fulfillment_requests_blood_request_id_fkey(
+          id,
+          blood_type,
+          quantity,
+          status
+        ),
+        campaign:blood_campaigns!fulfillment_requests_campaign_id_fkey(
+          id,
+          title,
+          status
+        ),
         pmi:institutions!fulfillment_requests_pmi_id_fkey(
           id,
           institution_name
         ),
         donor_confirmations(id, status)
-      `)
-      .order("created_at", { ascending: false });
+      `, { count: 'exact' })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
     if (pmi_id) query = query.eq("pmi_id", pmi_id);
     if (status) query = query.eq("status", status);
     if (blood_type) query = query.eq("blood_type", blood_type);
 
-    let { data, error } = await query;
+    let { data, error, count } = await query;
 
     if (error) {
       return response.sendBadRequest(res, error.message);
@@ -673,7 +695,14 @@ const getAllFulfillmentRequests = async (req, res) => {
 
     return response.sendSuccess(res, { 
       message: "Daftar pemenuhan berhasil dimuat", 
-      data 
+      data,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: count,
+        totalPages: Math.ceil(count / limitNum),
+        hasMore: offset + limitNum < count
+      }
     });
   } catch (error) {
     console.error("Error getting fulfillment requests:", error);
