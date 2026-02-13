@@ -24,7 +24,11 @@ const port = process.env.PORT || 4000;
 // CORS configuration with credentials support
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = ['http://localhost:3000', 'http://localhost:3001'];
+    // Get allowed origins from environment variable or use default
+    const allowedOrigins = process.env.ALLOWED_ORIGINS 
+      ? process.env.ALLOWED_ORIGINS.split(',').map(url => url.trim())
+      : ['http://localhost:3000', 'http://localhost:3001'];
+      
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
