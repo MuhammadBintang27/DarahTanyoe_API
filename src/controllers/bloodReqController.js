@@ -3,6 +3,7 @@ import response from "../helpers/responses.js";
 import { DateTime } from "luxon";
 import notificationService from "../services/notificationService.js";
 import { invalidate } from "../utils/cache.js";
+import { invalidateForRequest } from "../utils/invalidation.js";
 import { extractCoordinatesFromLocation } from "../utils/coordinates.js";
 
 const createBloodReq = async (req, res) => {
@@ -64,17 +65,9 @@ const createBloodReq = async (req, res) => {
       }
     }
 
-    // Invalidate relevant caches (lists + dashboard)
+    // Invalidate relevant caches using helper
     try {
-      const keys = [
-        newRequest?.requester_id ? `requests:by_requester:${newRequest.requester_id}` : null,
-        newRequest?.partner_id ? `requests:by_partner:${newRequest.partner_id}` : null,
-        newRequest?.requester_id ? `dashboard:rs:${newRequest.requester_id}:summary` : null,
-        newRequest?.partner_id ? `dashboard:pmi:${newRequest.partner_id}:summary` : null,
-        newRequest?.requester_id ? `dashboard:rs:${newRequest.requester_id}:trend:requests:30` : null,
-        newRequest?.partner_id ? `dashboard:pmi:${newRequest.partner_id}:trend:requests:30` : null,
-      ].filter(Boolean)
-      if (keys.length) await invalidate(keys)
+      await invalidateForRequest(newRequest.id);
     } catch (e) {
       console.warn('[cache] createBloodReq invalidate fail:', e?.message)
     }
@@ -446,18 +439,9 @@ const patchBloodRequestStatus = async (req, res) => {
       return response.sendInternalError(res, error.message);
     }
 
-    // Invalidate caches (lists + dashboard)
+    // Invalidate caches using helper  
     try {
-      const keys = [
-        `request:${id}`,
-        reqData?.requester_id ? `requests:by_requester:${reqData.requester_id}` : null,
-        reqData?.partner_id ? `requests:by_partner:${reqData.partner_id}` : null,
-        reqData?.requester_id ? `dashboard:rs:${reqData.requester_id}:summary` : null,
-        reqData?.partner_id ? `dashboard:pmi:${reqData.partner_id}:summary` : null,
-        reqData?.requester_id ? `dashboard:rs:${reqData.requester_id}:trend:requests:30` : null,
-        reqData?.partner_id ? `dashboard:pmi:${reqData.partner_id}:trend:requests:30` : null,
-      ].filter(Boolean)
-      if (keys.length) await invalidate(keys)
+      await invalidateForRequest(id);
     } catch (e) {
       console.warn('[cache] patchBloodRequestStatus invalidate fail:', e?.message)
     }

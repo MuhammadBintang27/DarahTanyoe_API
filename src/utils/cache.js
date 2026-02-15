@@ -30,8 +30,12 @@ export async function invalidate(keys) {
   if (!isEnabled()) return
   const list = Array.isArray(keys) ? keys : [keys]
   try {
-    if (list.length > 0) await redis.del(...list)
+    if (list.length > 0) {
+      console.log(`[cache] Deleting ${list.length} keys:`, list);
+      const result = await redis.del(...list);
+      console.log(`[cache] ✅ Deleted ${result} keys from Redis`);
+    }
   } catch (e) {
-    console.warn('[cache] invalidate fail:', e?.message)
+    console.warn('[cache] ❌ invalidate fail:', e?.message)
   }
 }
