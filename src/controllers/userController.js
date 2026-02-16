@@ -271,11 +271,11 @@ const completeUserProfile = async (req, res) => {
       return response.sendBadRequest(res, "Golongan darah tidak valid");
     }
 
-    // Check duplikat phone_number atau email
+    // Check duplikat phone_number 
     const { data: existingUser, error: checkError } = await supabase
       .from("users")
       .select("id")
-      .or(`phone_number.eq.${cleanPhoneNumber},email.eq.${email}`)
+      .or(`phone_number.eq.${cleanPhoneNumber}`)
       .maybeSingle();
 
     if (checkError) {
@@ -284,7 +284,7 @@ const completeUserProfile = async (req, res) => {
     }
 
     if (existingUser) {
-      return response.sendBadRequest(res, "Nomor telepon atau email sudah terdaftar");
+      return response.sendBadRequest(res, "Nomor telepon sudah terdaftar");
     }
 
     // Simpan data ke Supabase
