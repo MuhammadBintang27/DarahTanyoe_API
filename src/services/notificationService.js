@@ -141,6 +141,27 @@ class NotificationService {
           action_url: notification.action_url || '',
           ...(notification.metadata || {}),
         },
+        // Android-specific configuration for heads-up notification
+        android: {
+          priority: 'high',
+          notification: {
+            priority: 'high',
+            channelId: 'darahtanyoe_channel_v2',
+            sound: 'notification_sound',
+            defaultSound: false,
+            defaultVibrateTimings: false,
+            defaultLightSettings: false,
+          },
+        },
+        // iOS-specific configuration
+        apns: {
+          payload: {
+            aps: {
+              sound: 'notification_sound.caf',
+              badge: 1,
+            },
+          },
+        },
       };
 
       // Send to multiple tokens
