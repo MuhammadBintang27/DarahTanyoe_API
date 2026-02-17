@@ -1,6 +1,7 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import notificationService from "../services/notificationService.js";
+import { sendWhatsAppNotification } from "../services/whatsappService.js";
 import { invalidateForPartnerStock } from "../utils/invalidation.js";
 
 /**
@@ -43,7 +44,7 @@ const createJanjiDonor = async (req, res) => {
     // Validate donor exists and matches blood_type if provided
     const { data: donor } = await supabase
       .from("users")
-      .select("id, full_name, blood_type")
+      .select("id, full_name, blood_type, phone_number")
       .eq("id", donor_id)
       .single();
 
@@ -116,6 +117,31 @@ const createJanjiDonor = async (req, res) => {
 
     if (updateError) {
       return response.sendBadRequest(res, updateError.message);
+    }
+
+    // Send WhatsApp notification with unique code (walk-in donor - no patient info)
+    try {
+      if (donor?.phone_number) {
+        const formatDate = (isoString) => {
+          const date = new Date(isoString);
+          return new Intl.DateTimeFormat('id-ID', { 
+            day: 'numeric', 
+            month: 'short', 
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Asia/Jakarta'
+          }).format(date) + ' WIB';
+        };
+
+        const message = `Terima kasih telah bersedia mendonorkan darah! 🩸\n\nJANJI DONOR ANDA:\nKode Unik: *${confirmed.unique_code}*\nGolongan Darah: ${confirmed.donor?.blood_type || blood_type}\nBerlaku sampai: ${formatDate(confirmed.code_expires_at)}\n\n📱 Lihat detail: darahtanyoe://confirmation/${confirmed.id}\n\nSilakan datang ke PMI dengan kode unik ini untuk verifikasi dan donasi. Terima kasih telah menyelamatkan nyawa!`;
+
+        await sendWhatsAppNotification(donor.phone_number, message);
+        console.log(`📱 WhatsApp sent to ${donor.full_name} (walk-in donor)`);
+      }
+    } catch (whatsappError) {
+      console.error("❌ Failed to send WhatsApp notification:", whatsappError.message);
+      // Don't fail the request - WhatsApp is optional
     }
 
     return response.sendSuccess(res, {

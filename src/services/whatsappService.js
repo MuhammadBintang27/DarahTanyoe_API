@@ -79,18 +79,23 @@ const sendWhatsAppNotification = async (phone, message) => {
 
     const token = process.env.WABLAS_TOKEN;
     const secretKey = process.env.WABLAS_SECRET_KEY;
-    const flag = "instant";
 
-    const url = `https://bdg.wablas.com/api/send-message?token=${token}.${secretKey}&phone=${formattedPhone}&message=${encodeURIComponent(message)}&flag=${flag}`;
-
-    console.log("Wablas Notification URL:", url); // Debug URL
-
-    const response = await axios.get(url, {
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      timeout: 10000 // 10 second timeout
-    });
+    // Sesuai dokumentasi Wablas: POST dengan Authorization header
+    const response = await axios.post(
+      'https://bdg.wablas.com/api/send-message',
+      new URLSearchParams({
+        phone: formattedPhone,
+        message: message,
+        flag: 'instant'
+      }),
+      {
+        headers: {
+          'Authorization': `${token}.${secretKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        timeout: 10000 // 10 second timeout
+      }
+    );
 
     console.log("Notification sent via Wablas API:", response.data);
 

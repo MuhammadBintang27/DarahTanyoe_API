@@ -1,6 +1,7 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import notificationService from "../services/notificationService.js";
+import { sendWhatsAppNotification } from "../services/whatsappService.js";
 import { invalidate } from "../utils/cache.js";
 import { invalidateForRequest, invalidateForPartnerStock } from "../utils/invalidation.js";
 
@@ -1878,6 +1879,44 @@ const donorConfirm = async (req, res) => {
     console.log(`   - Code: ${updated.unique_code}`);
     console.log(`   - Expires at: ${updated.code_expires_at}`);
     console.log(`   - Blood type: ${updated.donor.blood_type}`);
+
+    // Send WhatsApp notification with unique code and patient info
+    try {
+      if (updated.donor?.phone_number) {
+        const formatDate = (isoString) => {
+          const date = new Date(isoString);
+          return new Intl.DateTimeFormat('id-ID', { 
+            day: 'numeric', 
+            month: 'short', 
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Asia/Jakarta'
+          }).format(date) + ' WIB';
+        };
+
+        const message = `Terima kasih telah bersedia mendonorkan darah! 🩸
+
+PERMINTAAN UNTUK PASIEN:
+Nama Pasien: ${updated.fulfillment?.patient_name || 'Pasien'}
+Golongan Darah: ${updated.fulfillment?.blood_type || updated.donor.blood_type}
+Kebutuhan: ${updated.fulfillment?.quantity_needed || 1} kantong
+
+KODE UNIK ANDA:
+Kode: *${updated.unique_code}*
+Berlaku sampai: ${formatDate(updated.code_expires_at)}
+
+📱 Lihat detail: darahtanyoe://confirmation/${updated.id}
+
+Silakan datang ke PMI dengan kode unik ini untuk verifikasi dan donasi. Terima kasih telah menyelamatkan nyawa!`;
+
+        await sendWhatsAppNotification(updated.donor.phone_number, message);
+        console.log(`📱 WhatsApp sent to ${updated.donor.full_name} (campaign donor)`);
+      }
+    } catch (whatsappError) {
+      console.error("❌ Failed to send WhatsApp notification:", whatsappError.message);
+      // Don't fail the request - WhatsApp is optional
+    }
 
     return response.sendSuccess(res, {
       message: "Konfirmasi berhasil diterima. Kode unik Anda telah dibuat.",
