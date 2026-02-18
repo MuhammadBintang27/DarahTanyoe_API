@@ -15,13 +15,8 @@ const getEligibleDonorsForReminder = async () => {
     const vaccinationEndDate = new Date();
     vaccinationEndDate.setMinutes(vaccinationEndDate.getMinutes() - 3);
     
-    // Get donors who completed donation exactly around 3 minutes ago (±30 seconds tolerance)
-    const startDate = new Date(vaccinationEndDate);
-    startDate.setSeconds(startDate.getSeconds() - 30);
-    const endDate = new Date(vaccinationEndDate);
-    endDate.setSeconds(endDate.getSeconds() + 30);
-
-    // 🧪 Get completed donations from ~3 minutes ago (±30 seconds)
+    // 🧪 Get completed donations from MORE THAN 3 minutes ago (not exact)
+    // For testing: any donation older than 3 minutes will be eligible
     const { data: recentDonations, error: donationError } = await supabase
       .from("donations")
       .select(`
@@ -38,9 +33,9 @@ const getEligibleDonorsForReminder = async () => {
         )
       `)
       .eq("status", "completed")
-      .gte("donation_date", startDate.toISOString())
-      .lte("donation_date", endDate.toISOString())
-      .order("donation_date", { ascending: false });
+      .lte("donation_date", vaccinationEndDate.toISOString()) // Less than or equal (older than 3 min)
+      .order("donation_date", { ascending: false })
+      .limit(50); // Limit untuk testing
 
     if (donationError) {
       console.error("❌ Error fetching donations:", donationError);
