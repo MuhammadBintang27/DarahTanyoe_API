@@ -2,21 +2,23 @@ import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import { sendWhatsAppNotification } from "../services/whatsappService.js";
 
-// 🧪 TESTING MODE: Reminder set to 3 minutes instead of 90 days
-// TODO: Change back to 90 days before production deployment
-
 /**
- * Get eligible donors for reminder (completed donation 3 minutes ago - TESTING MODE)
+ * Get eligible donors for reminder (completed donation 90 days ago)
  * Returns list of donors who can donate again
  */
 const getEligibleDonorsForReminder = async () => {
   try {
-    // 🧪 TESTING MODE: Calculate date 3 minutes ago (instead of 90 days)
+    // Calculate date 90 days ago (vaccination period)
     const vaccinationEndDate = new Date();
-    vaccinationEndDate.setMinutes(vaccinationEndDate.getMinutes() - 3);
+    vaccinationEndDate.setDate(vaccinationEndDate.getDate() - 90);
     
-    // 🧪 Get completed donations from MORE THAN 3 minutes ago (not exact)
-    // For testing: any donation older than 3 minutes will be eligible
+    // Get donors who completed donation exactly around 90 days ago (±1 day tolerance)
+    const startDate = new Date(vaccinationEndDate);
+    startDate.setDate(startDate.getDate() - 1);
+    const endDate = new Date(vaccinationEndDate);
+    endDate.setDate(endDate.getDate() + 1);
+
+    // Get completed donations from 89-91 days ago
     const { data: recentDonations, error: donationError } = await supabase
       .from("donations")
       .select(`
@@ -33,9 +35,9 @@ const getEligibleDonorsForReminder = async () => {
         )
       `)
       .eq("status", "completed")
-      .lte("donation_date", vaccinationEndDate.toISOString()) // Less than or equal (older than 3 min)
-      .order("donation_date", { ascending: false })
-      .limit(50); // Limit untuk testing
+      .gte("donation_date", startDate.toISOString())
+      .lte("donation_date", endDate.toISOString())
+      .order("donation_date", { ascending: false });
 
     if (donationError) {
       console.error("❌ Error fetching donations:", donationError);
@@ -43,7 +45,7 @@ const getEligibleDonorsForReminder = async () => {
     }
 
     if (!recentDonations || recentDonations.length === 0) {
-      console.log("ℹ️ No donations found from 3 minutes ago (TESTING MODE)");
+      console.log("ℹ️ No donations found from 90 days ago");
       return [];
     }
 
@@ -80,12 +82,11 @@ const getEligibleDonorsForReminder = async () => {
  */
 const sendDonorReminders = async (req, res) => {
   try {
-    // 🧪 TESTING: Temporarily disabled security check
-    // TODO: Re-enable before production
-    /*
+    // Simple security check: Vercel Cron or authorized requests only
     const authHeader = req.headers.authorization;
     const cronSecret = process.env.CRON_SECRET;
     
+    // Allow if called by Vercel Cron (has x-vercel-cron header) or with valid auth token
     const isVercelCron = req.headers['x-vercel-cron'];
     const isAuthorized = cronSecret && authHeader === `Bearer ${cronSecret}`;
     
@@ -93,7 +94,6 @@ const sendDonorReminders = async (req, res) => {
       console.log("⚠️ Unauthorized cron access attempt");
       return response.sendUnauthorized(res, "Akses tidak diizinkan. Endpoint ini hanya untuk scheduled job.");
     }
-    */
 
     console.log("🔔 Starting donor reminder job...");
 
