@@ -15,7 +15,7 @@
   "crons": [
     {
       "path": "/donor-reminder/send",
-      "schedule": "0 2 * * *"
+      "schedule": "45 6 * * *"
     }
   ]
 }
