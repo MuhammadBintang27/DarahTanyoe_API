@@ -85,11 +85,12 @@ const getEligibleDonorsForReminder = async () => {
  */
 const sendDonorReminders = async (req, res) => {
   try {
-    // Simple security check: Vercel Cron or authorized requests only
+    // 🧪 TESTING: Temporarily disabled security check
+    // TODO: Re-enable before production
+    /*
     const authHeader = req.headers.authorization;
     const cronSecret = process.env.CRON_SECRET;
     
-    // Allow if called by Vercel Cron (has x-vercel-cron header) or with valid auth token
     const isVercelCron = req.headers['x-vercel-cron'];
     const isAuthorized = cronSecret && authHeader === `Bearer ${cronSecret}`;
     
@@ -97,6 +98,7 @@ const sendDonorReminders = async (req, res) => {
       console.log("⚠️ Unauthorized cron access attempt");
       return response.sendUnauthorized(res, "Akses tidak diizinkan. Endpoint ini hanya untuk scheduled job.");
     }
+    */
 
     console.log("🔔 Starting donor reminder job...");
 
