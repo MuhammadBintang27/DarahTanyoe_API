@@ -1895,6 +1895,7 @@ const donorConfirm = async (req, res) => {
           }).format(date) + ' WIB';
         };
 
+        const webUrl = process.env.WEB_URL || 'https://darah-tanyoe-web.vercel.app';
         const message = `Terima kasih telah bersedia mendonorkan darah! 🩸
 
 PERMINTAAN UNTUK PASIEN:
@@ -1906,7 +1907,8 @@ KODE UNIK ANDA:
 Kode: *${updated.unique_code}*
 Berlaku sampai: ${formatDate(updated.code_expires_at)}
 
-📱 Lihat detail: darahtanyoe://confirmation/${updated.id}
+📱 Buka aplikasi:
+${webUrl}/app/confirmation?id=${updated.id}
 
 Silakan datang ke PMI dengan kode unik ini untuk verifikasi dan donasi. Terima kasih telah menyelamatkan nyawa!`;
 
