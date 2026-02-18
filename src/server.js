@@ -15,6 +15,7 @@ import campaignRouter from './routes/campaignRouter.js';
 import allocationRouter from './routes/allocationRouter.js';
 import dashboardRouter from './routes/dashboardRouter.js';
 import janjiDonorRouter from './routes/janjiDonorRouter.js';
+import donorReminderRouter from './routes/donorReminderRouter.js';
 
 dotenv.config();
 
@@ -57,6 +58,7 @@ app.use('/campaigns', campaignRouter);
 app.use('/allocation', allocationRouter);
 app.use('/dashboard', dashboardRouter);
 app.use('/janji-donor', janjiDonorRouter);
+app.use('/donor-reminder', donorReminderRouter);
 
 // Middleware untuk logging request
 app.use((req, res, next) => {

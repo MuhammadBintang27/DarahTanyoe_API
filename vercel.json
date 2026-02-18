@@ -11,5 +11,11 @@
       "src": "/(.*)",
       "dest": "api/index.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/donor-reminder/send",
+      "schedule": "0 2 * * *"
+    }
   ]
 }
