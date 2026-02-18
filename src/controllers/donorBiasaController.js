@@ -135,7 +135,7 @@ const createJanjiDonor = async (req, res) => {
         };
 
         const webUrl = process.env.WEB_URL || 'https://darah-tanyoe-web.vercel.app';
-        const appUrl = `${webUrl}/app/confirmation?id=${confirmed.id}`;
+        const appUrl = `${webUrl}/confirmation.html?id=${confirmed.id}`;
         
         const message = `Terima kasih telah bersedia mendonorkan darah! 🩸\n\nJANJI DONOR ANDA:\nKode Unik: *${confirmed.unique_code}*\nGolongan Darah: ${confirmed.donor?.blood_type || blood_type}\nBerlaku sampai: ${formatDate(confirmed.code_expires_at)}\n\n📱 Buka di aplikasi:\n${appUrl}\n\nSilakan datang ke PMI dengan kode unik ini untuk verifikasi dan donasi. Terima kasih telah menyelamatkan nyawa!`;
 

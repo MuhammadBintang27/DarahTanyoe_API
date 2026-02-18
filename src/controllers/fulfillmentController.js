@@ -1896,7 +1896,7 @@ const donorConfirm = async (req, res) => {
         };
 
         const webUrl = process.env.WEB_URL || 'https://darah-tanyoe-web.vercel.app';
-        const appUrl = `${webUrl}/app/confirmation?id=${updated.id}`;
+        const appUrl = `${webUrl}/confirmation.html?id=${updated.id}`;
         
         const message = `Terima kasih telah bersedia mendonorkan darah! 🩸
 
