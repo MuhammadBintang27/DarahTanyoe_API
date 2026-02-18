@@ -1896,8 +1896,7 @@ const donorConfirm = async (req, res) => {
         };
 
         const webUrl = process.env.WEB_URL || 'https://darah-tanyoe-web.vercel.app';
-        const packageName = 'com.darahtanyoe.app';
-        const intentUrl = `intent://confirmation/${updated.id}#Intent;scheme=darahtanyoe;package=${packageName};S.browser_fallback_url=${webUrl}/app/confirmation?id=${updated.id};end`;
+        const appUrl = `${webUrl}/app/confirmation?id=${updated.id}`;
         
         const message = `Terima kasih telah bersedia mendonorkan darah! 🩸
 
@@ -1911,7 +1910,7 @@ Kode: *${updated.unique_code}*
 Berlaku sampai: ${formatDate(updated.code_expires_at)}
 
 📱 Buka di aplikasi:
-${intentUrl}
+${appUrl}
 
 Silakan datang ke PMI dengan kode unik ini untuk verifikasi dan donasi. Terima kasih telah menyelamatkan nyawa!`;
 
