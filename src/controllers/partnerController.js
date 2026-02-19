@@ -46,7 +46,7 @@ const getPatnerWithBloodStock = async (req, res) => {
       const institutionIds = dataInstitutions.map(i => i.id);
       const { data: dataBloodStock, error: errorBloodStock } = await supabase
         .from("blood_stock")
-        .select("institution_id, blood_type, quantity, expiry_date")
+        .select("institution_id, blood_type, component_type, quantity, expiry_date")
         .in("institution_id", institutionIds)
         .eq("status", "available");
 
@@ -66,6 +66,7 @@ const getPatnerWithBloodStock = async (req, res) => {
             bloodStock.length > 0
               ? bloodStock.map((stock) => ({
                   blood_type: stock.blood_type,
+                  component_type: stock.component_type,
                   quantity: stock.quantity,
                   expiry_date: stock.expiry_date,
                 }))
@@ -116,33 +117,20 @@ const getInstitutionById = async (req, res) => {
         throw new Error("Institution not found");
       }
 
-      // Get blood stock for this institution, grouped by blood type
+      // Get blood stock for this institution (raw data, frontend will aggregate)
       const { data: bloodStock, error: stockError } = await supabase
         .from("blood_stock")
-        .select("blood_type, quantity, expiry_date")
+        .select("blood_type, component_type, quantity, expiry_date, updated_at")
         .eq("institution_id", institutionId)
-        .eq("status", "available");
+        .eq("status", "available")
+        .order("blood_type", { ascending: true })
+        .order("component_type", { ascending: true });
 
       if (stockError) {
         console.error("Error fetching blood stock:", stockError);
       }
 
-      // Group blood stock by blood type and sum quantities
-      const groupedStock = {};
-      if (bloodStock && bloodStock.length > 0) {
-        bloodStock.forEach((stock) => {
-          if (!groupedStock[stock.blood_type]) {
-            groupedStock[stock.blood_type] = 0;
-          }
-          groupedStock[stock.blood_type] += stock.quantity;
-        });
-      }
-
-      // Convert to array format
-      const blood_stock = Object.keys(groupedStock).map((blood_type) => ({
-        blood_type,
-        quantity: groupedStock[blood_type],
-      }));
+      const blood_stock = bloodStock || [];
 
       return {
         ...institution,

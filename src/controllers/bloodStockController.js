@@ -36,7 +36,7 @@ const getBloodStockByInstitution = async (req, res) => {
 
 // Adjust blood stock (add or reduce)
 const adjustBloodStock = async (req, res) => {
-  const { institution_id, blood_type, change_type, quantity_change, notes } = req.body;
+  const { institution_id, blood_type, component_type, change_type, quantity_change, notes } = req.body;
 
   // Validation
   if (!institution_id || !blood_type || !change_type || !quantity_change) {
@@ -51,15 +51,19 @@ const adjustBloodStock = async (req, res) => {
     return response.sendBadRequest(res, "Jenis perubahan tidak valid");
   }
 
-  try {
-    console.log(`🔍 [adjustBloodStock] Checking stock for ${institution_id} - ${blood_type} - ${change_type}: ${quantity_change}`);
+  // Default to WB if component_type not provided (backward compatibility)
+  const componentTypeValue = component_type || 'WB';
 
-    // Get ALL current stock records for this blood type (there might be multiple batches)
+  try {
+    console.log(`🔍 [adjustBloodStock] Checking stock for ${institution_id} - ${blood_type} - ${componentTypeValue} - ${change_type}: ${quantity_change}`);
+
+    // Get ALL current stock records for this blood type AND component type
     const { data: currentStocks, error: stockError } = await supabase
       .from("blood_stock")
       .select("*")
       .eq("institution_id", institution_id)
       .eq("blood_type", blood_type)
+      .eq("component_type", componentTypeValue)
       .eq("status", "available");
 
     if (stockError) {
@@ -94,20 +98,29 @@ const adjustBloodStock = async (req, res) => {
     // Update or insert stock record
     if (change_type === 'add') {
       // For add operations: create new stock record
-      // Set expiry date to 35 days from now (default blood expiry)
+      // Set expiry date based on component type
+      const shelfLifeDays = {
+        'WB': 35,     // Whole Blood: 35 days
+        'PRC': 35,    // Packed Red Cells: 35 days
+        'FFP': 365,   // Fresh Frozen Plasma: 1 year
+        'TC': 5,      // Thrombocyte Concentrate: 5 days
+        'Cryo': 365   // Cryoprecipitate: 1 year
+      };
+      
       const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 35);
+      expiryDate.setDate(expiryDate.getDate() + (shelfLifeDays[componentTypeValue] || 35));
       
       const { error: insertError } = await supabase
         .from("blood_stock")
         .insert({
           institution_id,
           blood_type,
+          component_type: componentTypeValue,
           quantity: quantity_change, // Only the added quantity
           status: "available",
           expiry_date: expiryDate.toISOString().split('T')[0],
           collection_date: new Date().toISOString().split('T')[0],
-          batch_number: `BATCH-${blood_type}-${Date.now()}`,
+          batch_number: `BATCH-${blood_type}-${componentTypeValue}-${Date.now()}`,
           created_at: new Date(),
           updated_at: new Date(),
         });
@@ -172,6 +185,7 @@ const adjustBloodStock = async (req, res) => {
       .insert({
         institution_id,
         blood_type,
+        component_type: componentTypeValue,
         change_type,
         quantity_change,
         previous_quantity: currentQuantity,
@@ -204,6 +218,7 @@ const adjustBloodStock = async (req, res) => {
       message: `Stok darah berhasil ${change_type === 'add' ? 'ditambah' : 'dikurangi'}`,
       data: {
         blood_type,
+        component_type: componentTypeValue,
         previous_quantity: currentQuantity,
         quantity_change,
         new_quantity: newQuantity,

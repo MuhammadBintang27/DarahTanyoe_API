@@ -1196,7 +1196,7 @@ const completeDonation = async (req, res) => {
       return response.sendBadRequest(res, "Donation already completed");
     }
 
-    // Create donation record
+    // Create donation record (will be processed into components later)
     const { data: donation, error: donationError } = await supabase
       .from("donations")
       .insert({
@@ -1205,7 +1205,8 @@ const completeDonation = async (req, res) => {
         blood_type: confirmation.fulfillment.blood_type,
         quantity,
         donation_date: new Date().toISOString(),
-        status: "completed",
+        status: "pending",
+        components_created: false,  // Will be true after processing
         notes,
         medical_notes,
         health_screening
@@ -1245,75 +1246,24 @@ const completeDonation = async (req, res) => {
       await invalidateForPartnerStock(pmi_id);
     }
 
-    // ✅ NEW: Create allocation entry BEFORE updating quantity_collected (Opsi 2)
-    console.log(`🔍 Allocation creation check:`);
-    console.log(`   - fulfillment_request_id: ${confirmation.fulfillment_request_id}`);
-    console.log(`   - fulfillment.quantity_needed: ${confirmation.fulfillment.quantity_needed}`);
-    console.log(`   - fulfillment.quantity_collected (BEFORE update): ${confirmation.fulfillment.quantity_collected || 0}`);
-    console.log(`   - quantity (donation): ${quantity}`);
-    
-    if (confirmation.fulfillment_request_id) {
-      try {
-        // Calculate allocation BEFORE we update quantity_collected
-        const already_allocated = confirmation.fulfillment.quantity_collected || 0;
-        const can_allocate = Math.min(
-          quantity,
-          confirmation.fulfillment.quantity_needed - already_allocated
-        );
-
-        console.log(`   - Can allocate: ${can_allocate}`);
-
-        if (can_allocate > 0) {
-          // We'll create allocation after blood_stock is created
-          // Store this info to use later
-          var allocationPending = {
-            blood_request_id: confirmation.fulfillment.blood_request_id,
-            fulfillment_request_id: confirmation.fulfillment_request_id,
-            quantity_to_allocate: can_allocate
-          };
-          console.log(`✅ Allocation scheduled: ${can_allocate} kantong will be allocated`);
-        }
-      } catch (error) {
-        console.error(`⚠️ Error in allocation calculation:`, error);
-      }
-    }
-
-    // Update fulfillment request quantity
-    const newQuantity = (confirmation.fulfillment.quantity_collected || 0) + quantity;
+    // Update fulfillment request - only update completed_donors count
+    // quantity_collected will be updated later when donation is processed
     const newCompletedDonors = (confirmation.fulfillment.completed_donors || 0) + 1;
     
-    // Check if fulfillment is now complete
-    const isFulfilled = newQuantity >= confirmation.fulfillment.quantity_needed;
-    
-    // Always update quantity and completed_donors
+    // Update completed_donors count
     await supabase
       .from("fulfillment_requests")
       .update({
-        quantity_collected: newQuantity,
         completed_donors: newCompletedDonors
       })
       .eq("id", confirmation.fulfillment_request_id);
 
-    console.log(`📊 Fulfillment #${confirmation.fulfillment_request_id} progress: quantity=${newQuantity}/${confirmation.fulfillment.quantity_needed}`);
+    console.log(`📊 Fulfillment #${confirmation.fulfillment_request_id} progress: ${newCompletedDonors} donors completed (stock will be added after processing)`);
 
-    // If fulfilled, update status to 'fulfilled' and sync campaign
-    if (isFulfilled && confirmation.fulfillment.status === 'donors_found') {
-      console.log(`✅ Fulfillment #${confirmation.fulfillment_request_id} is complete! Updating status to 'fulfilled'...`);
-      
-      // Update fulfillment status
-      await supabase
-        .from("fulfillment_requests")
-        .update({
-          status: 'fulfilled',
-          completed_at: new Date().toISOString()
-        })
-        .eq("id", confirmation.fulfillment_request_id);
+    // Note: Fulfillment status will be updated after donations are processed
+    // and stock is created in the donation processing page
 
-      // Sync campaign status
-      await syncCampaignStatus(confirmation.fulfillment_request_id, 'fulfilled');
-    }
-
-    // ✅ Also update campaign quantity regardless of status
+    // ✅ Update campaign donor count (quantity will be updated after processing)
     let campaignId = confirmation.fulfillment.campaign_id;
     
     // Fallback: if no campaign_id, try to find campaign by blood_request_id
@@ -1331,203 +1281,24 @@ const completeDonation = async (req, res) => {
     }
 
     if (campaignId) {
-      // Use quantity_needed as target (not target_quantity)
-      const fulfillmentTarget = confirmation.fulfillment.quantity_needed || confirmation.fulfillment.target_quantity;
-      
       const { error: campaignError } = await supabase
         .from("blood_campaigns")
         .update({
-          current_quantity: newQuantity,
-          current_donors: newCompletedDonors,
-          status: newQuantity >= fulfillmentTarget ? 'completed' : 'active',
-          completed_at: newQuantity >= fulfillmentTarget ? new Date().toISOString() : null
+          current_donors: newCompletedDonors
+          // Note: current_quantity will be updated after donation processing
         })
         .eq("id", campaignId);
 
       if (!campaignError) {
-        const isFulfilled = newQuantity >= fulfillmentTarget;
-        if (isFulfilled) {
-          console.log(`✅ Campaign ${campaignId} FULFILLED! quantity=${newQuantity}/${fulfillmentTarget}. Status changed to 'completed'`);
-        } else {
-          console.log(`📊 Campaign ${campaignId} progress: quantity=${newQuantity}/${fulfillmentTarget}`);
-        }
+        console.log(`📊 Campaign ${campaignId} progress: ${newCompletedDonors} donors completed (stock pending processing)`);
       } else {
         console.warn(`⚠️ Failed to update campaign: ${campaignError.message}`);
       }
     }
 
-    // Add blood to stock
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + 35); // Default 35 days expiry
-    
-    const batchNumber = `BATCH-${confirmation.fulfillment.blood_type}-${Date.now()}`;
-    
-    const { data: bloodStock, error: stockError } = await supabase
-      .from("blood_stock")
-      .insert({
-        institution_id: pmi_id,
-        donation_id: donation.id,
-        blood_type: confirmation.fulfillment.blood_type,
-        quantity,
-        expiry_date: expiryDate.toISOString().split('T')[0],
-        batch_number: batchNumber,
-        collection_date: new Date().toISOString().split('T')[0],
-        status: 'available',
-        component_type: 'whole_blood'
-      })
-      .select()
-      .single();
-
-    if (stockError) {
-      console.error("⚠️ Failed to add blood stock:", stockError);
-    } else {
-      console.log(`✅ Added blood stock: ${quantity} kantong ${confirmation.fulfillment.blood_type}, batch: ${batchNumber}`);
-      
-      // Get current total stock for this blood type BEFORE adding (exclude the one just inserted)
-      const { data: currentStock } = await supabase
-        .from("blood_stock")
-        .select("quantity")
-        .eq("institution_id", pmi_id)
-        .eq("blood_type", confirmation.fulfillment.blood_type)
-        .eq("status", "available")
-        .neq("id", bloodStock.id); // Exclude the newly inserted record
-      
-      const previousQuantity = currentStock?.reduce((sum, item) => sum + item.quantity, 0) || 0;
-      const newTotalQuantity = previousQuantity + quantity;
-      
-      // Insert to blood_stock_history
-      await supabase
-        .from("blood_stock_history")
-        .insert({
-          institution_id: pmi_id,
-          blood_type: confirmation.fulfillment.blood_type,
-          change_type: 'add',
-          quantity_change: quantity,
-          previous_quantity: previousQuantity,
-          new_quantity: newTotalQuantity,
-          notes: `Donasi dari ${confirmation.donor.full_name} - Batch: ${batchNumber}`,
-          created_by: pmi_id
-        });
-      
-      console.log(`📝 History recorded: ${previousQuantity} → ${newTotalQuantity} kantong`);
-    }
-
-    // ✅ NEW: Create allocation entry (Opsi 2 - explicit allocation tracking)
-    // Use the calculated allocation from earlier (before quantity_collected was updated)
-    if (bloodStock && allocationPending) {
-      try {
-        console.log(`📝 Creating allocation with blood_stock ${bloodStock.id}...`);
-        const { data: allocation, error: allocError } = await supabase
-          .from("blood_allocation")
-          .insert({
-            blood_request_id: allocationPending.blood_request_id,
-            fulfillment_request_id: allocationPending.fulfillment_request_id,
-            blood_stock_id: bloodStock.id,
-            quantity_allocated: allocationPending.quantity_to_allocate,
-            status: 'allocated'
-          })
-          .select()
-          .single();
-
-        if (!allocError && allocation) {
-          console.log(`✅ Created allocation: ${allocationPending.quantity_to_allocate} kantong allocated`);
-        } else {
-          console.error(`❌ Failed to create allocation:`, allocError);
-        }
-      } catch (error) {
-        console.error(`❌ Error creating allocation:`, error);
-      }
-    } else {
-      console.log(`⚠️ Skipping allocation: bloodStock=${!!bloodStock}, allocationPending=${!!allocationPending}`);
-    }
-
-    // Check if fulfillment is complete and update blood_request status
-    const { data: bloodRequest, error: requestError } = await supabase
-      .from("blood_requests")
-      .select("id, quantity, status")
-      .eq("id", confirmation.fulfillment.blood_request_id)
-      .single();
-
-    if (!requestError && bloodRequest) {
-      // Check total available stock for this blood type at this PMI
-      const { data: availableStock } = await supabase
-        .from("blood_stock")
-        .select("quantity")
-        .eq("institution_id", pmi_id)
-        .eq("blood_type", confirmation.fulfillment.blood_type)
-        .eq("status", "available");
-
-      const totalStock = availableStock?.reduce((sum, item) => sum + item.quantity, 0) || 0;
-
-      // Check how much is already allocated TO THIS specific request
-      const { data: allocatedToThisRequest } = await supabase
-        .from("blood_allocation")
-        .select("quantity_allocated")
-        .eq("blood_request_id", bloodRequest.id)
-        .eq("status", "allocated");
-
-      const allocatedToThis = allocatedToThisRequest?.reduce((sum, item) => sum + item.quantity_allocated, 0) || 0;
-
-      // Check how much is allocated to ALL requests (to calculate free stock)
-      const { data: totalAllocated } = await supabase
-        .from("blood_allocation")
-        .select(`
-          quantity_allocated,
-          blood_stock_id,
-          blood_stock!blood_allocation_blood_stock_id_fkey(
-            institution_id,
-            blood_type
-          )
-        `)
-        .eq("blood_stock.institution_id", pmi_id)
-        .eq("blood_stock.blood_type", confirmation.fulfillment.blood_type)
-        .eq("status", "allocated");
-
-      const totalAllocatedQuantity = totalAllocated?.reduce((sum, item) => sum + item.quantity_allocated, 0) || 0;
-      const freeStock = totalStock - totalAllocatedQuantity;
-      const availableForThisRequest = allocatedToThis + freeStock;
-
-      console.log(`📊 Stock check for request ${bloodRequest.id}:`);
-      console.log(`   - Total available stock: ${totalStock}`);
-      console.log(`   - Total allocated to all requests: ${totalAllocatedQuantity}`);
-      console.log(`   - Free stock (unallocated): ${freeStock}`);
-      console.log(`   - Allocated to THIS request: ${allocatedToThis}`);
-      console.log(`   - Available for this request (allocated + free): ${availableForThisRequest}`);
-      console.log(`   - Quantity needed: ${bloodRequest.quantity}`);
-
-      // If allocated + free stock is sufficient and request is in_fulfillment, mark as ready
-      if (availableForThisRequest >= bloodRequest.quantity && bloodRequest.status === 'in_fulfillment') {
-        await supabase
-          .from("blood_requests")
-          .update({ status: 'ready' })
-          .eq("id", bloodRequest.id);
-
-        console.log(`✅ Blood request ${bloodRequest.id} marked as READY - sufficient stock available!`);
-
-        // Notify hospital that blood is ready
-        const { data: requester } = await supabase
-          .from("blood_requests")
-          .select("requester_id, patient_name")
-          .eq("id", bloodRequest.id)
-          .single();
-
-        if (requester) {
-          try {
-            await notificationService.notify({
-              institutionId: requester.requester_id,
-              type: 'request',
-              title: 'Darah Siap Diambil!',
-              message: `Darah ${confirmation.fulfillment.blood_type} untuk pasien ${requester.patient_name} telah siap. Silakan jadwalkan pengambilan.`,
-              priority: 'high',
-              relatedId: bloodRequest.id,
-              relatedType: 'blood_request'
-            });
-          } catch (notifError) {
-            console.error("Failed to send hospital notification:", notifError);
-          }
-        }
-      }
-    }
+    // 📝 NOTE: Blood stock will be created later in donation processing
+    // Donation needs to go through testing and component separation first
+    console.log(`📋 Donation created with status 'pending_test' - requires processing in donation/processing page`);
 
     // Send notification to donor
     try {
@@ -1544,29 +1315,13 @@ const completeDonation = async (req, res) => {
       console.error("Failed to send notification:", notifError);
     }
 
-    // ✅ NEW: Get allocation info if exists (Opsi 2)
-    let allocation = null;
-    if (confirmation.fulfillment_request_id) {
-      const { data: alloc } = await supabase
-        .from("blood_allocation")
-        .select("*")
-        .eq("fulfillment_request_id", confirmation.fulfillment_request_id)
-        .eq("blood_stock_id", bloodStock?.id)
-        .single();
-      
-      allocation = alloc;
-    }
-
     return response.sendSuccess(res, {
-      message: "Donasi berhasil diselesaikan",
+      message: "Donasi berhasil diselesaikan. Menunggu pemrosesan di laboratorium.",
       data: {
         donation,
         confirmation: updated,
-        blood_stock: bloodStock,
-        allocation,  // ✅ NEW: Include allocation info
-        request_status_updated: bloodRequest?.status === 'in_fulfillment',
-        quantity_collected: newQuantity,
-        quantity_still_needed: Math.max(0, confirmation.fulfillment.quantity_needed - newQuantity)
+        completed_donors: newCompletedDonors,
+        note: "Donasi akan diproses di halaman Donasi/Processing untuk pemeriksaan dan pemisahan komponen"
       }
     });
   } catch (error) {

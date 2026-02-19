@@ -62,6 +62,15 @@ const createBloodReq = async (req, res) => {
     }
     
     // ============================================
+    // VALIDATE COMPONENT TYPE
+    // ============================================
+    
+    const validComponentTypes = ['WB', 'PRC', 'FFP', 'TC', 'Cryo'];
+    if (cleanBody.component_type && !validComponentTypes.includes(cleanBody.component_type)) {
+      return response.sendBadRequest(res, `Tipe komponen harus salah satu dari: ${validComponentTypes.join(', ')}`);
+    }
+    
+    // ============================================
     
     const payload = {
       ...cleanBody,
@@ -70,6 +79,7 @@ const createBloodReq = async (req, res) => {
       // Set defaults
       unit_type: cleanBody.unit_type || 'kantong',
       urgency_level: cleanBody.urgency_level || 'medium',
+      component_type: cleanBody.component_type || 'WB',
     };
     
     const { data: newRequest, error } = await supabase

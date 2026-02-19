@@ -268,7 +268,7 @@ const completeJanjiDonor = async (req, res) => {
       return response.sendBadRequest(res, `Kode harus diverifikasi terlebih dahulu. Status saat ini: ${confirmation.status}`);
     }
 
-    // Create donation using donor's blood_type (no fulfillment link)
+    // Create donation with "pending" status - will be processed later in "Proses Donasi" page
     const donorBloodType = confirmation.donor?.blood_type;
     const { data: donation, error: donationError } = await supabase
       .from("donations")
@@ -278,7 +278,7 @@ const completeJanjiDonor = async (req, res) => {
         blood_type: donorBloodType,
         quantity,
         donation_date: new Date().toISOString(),
-        status: "completed",
+        status: "pending", // Changed from "completed" - will be processed to components later
         notes,
         medical_notes,
         health_screening
@@ -303,58 +303,10 @@ const completeJanjiDonor = async (req, res) => {
       .select("*")
       .single();
 
-    // Add blood stock (free stock)
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + 35);
-    const batchNumber = `BATCH-${donorBloodType}-${Date.now()}`;
+    console.log(`✅ Janji Donor completed: Created donation ${donation.id} with status "pending" - ready for component processing`);
 
-    const { data: bloodStock } = await supabase
-      .from("blood_stock")
-      .insert({
-        institution_id: pmi_id,
-        donation_id: donation.id,
-        blood_type: donorBloodType,
-        quantity,
-        expiry_date: expiryDate.toISOString().split('T')[0],
-        batch_number: batchNumber,
-        collection_date: new Date().toISOString().split('T')[0],
-        status: 'available',
-        component_type: 'whole_blood'
-      })
-      .select()
-      .single();
-
-    // History entry
-    const { data: currentStock } = await supabase
-      .from("blood_stock")
-      .select("quantity")
-      .eq("institution_id", pmi_id)
-      .eq("blood_type", donorBloodType)
-      .eq("status", "available")
-      .neq("id", bloodStock?.id || "00000000-0000-0000-0000-000000000000");
-
-    const previousQuantity = currentStock?.reduce((sum, item) => sum + item.quantity, 0) || 0;
-    const newTotalQuantity = previousQuantity + quantity;
-
-    await supabase
-      .from("blood_stock_history")
-      .insert({
-        institution_id: pmi_id,
-        blood_type: donorBloodType,
-        change_type: 'add',
-        quantity_change: quantity,
-        previous_quantity: previousQuantity,
-        new_quantity: newTotalQuantity,
-        notes: `Donasi (Janji Donor) dari ${confirmation.donor?.full_name} - Batch: ${batchNumber}`,
-        created_by: pmi_id
-      });
-
-    // Invalidate PMI stock-related caches (snapshot, partner details, lists)
-    try {
-      await invalidateForPartnerStock(pmi_id);
-    } catch (e) {
-      console.warn('[cache] invalidateForPartnerStock failed:', e?.message);
-    }
+    // Invalidate caches
+    await invalidateForRequest(pmi_id, null);
 
     // Notify donor
     try {
@@ -362,7 +314,7 @@ const completeJanjiDonor = async (req, res) => {
         userId: confirmation.donor_id,
         type: 'donation',
         title: 'Terima Kasih atas Donasi Anda!',
-        message: `Donasi darah Anda sebanyak ${quantity} kantong telah berhasil dicatat. Terima kasih telah menyelamatkan nyawa!`,
+        message: `Donasi darah Anda sebanyak ${quantity} kantong telah berhasil dicatat dan menunggu diproses.`,
         priority: 'medium',
         relatedId: donation.id,
         relatedType: 'donation'
@@ -372,11 +324,10 @@ const completeJanjiDonor = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Janji Donor berhasil diselesaikan",
+      message: "Janji Donor berhasil diselesaikan. Donasi menunggu diproses menjadi komponen darah.",
       data: {
         donation,
-        confirmation: updated,
-        blood_stock: bloodStock
+        confirmation: updated
       }
     });
   } catch (error) {

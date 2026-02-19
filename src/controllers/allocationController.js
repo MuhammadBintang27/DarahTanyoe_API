@@ -315,7 +315,7 @@ const getBloodWithFreeStock = async (req, res) => {
     // Get blood request details and PMI info
     const { data: request, error: requestError } = await supabase
       .from("blood_requests")
-      .select("id, blood_type, quantity, status, requester_id, partner_id")
+      .select("id, blood_type, component_type, quantity, status, requester_id, partner_id")
       .eq("id", blood_request_id)
       .single();
 
@@ -331,6 +331,10 @@ const getBloodWithFreeStock = async (req, res) => {
     }
 
     console.log(`📍 PMI for this request: ${pmiId}`);
+    console.log(`🩸 Request requires: ${request.blood_type} ${request.component_type || 'WB'}`);
+
+    // Default to WB if component_type not specified (backward compatibility)
+    const requiredComponentType = request.component_type || 'WB';
 
     // ✅ OPTIMIZED: Fetch allocated blood and free stock in parallel
     const [
@@ -349,6 +353,7 @@ const getBloodWithFreeStock = async (req, res) => {
             id,
             batch_number,
             blood_type,
+            component_type,
             expiry_date,
             quantity,
             status,
@@ -362,15 +367,17 @@ const getBloodWithFreeStock = async (req, res) => {
         `)
         .eq("blood_stock.institution_id", pmiId)
         .eq("blood_stock.blood_type", request.blood_type)
+        .eq("blood_stock.component_type", requiredComponentType)
         .in("status", ["allocated", "partial_pickup"]),
       
-      // Get free stock (not in allocation, correct blood type, available status, from correct PMI)
+      // Get free stock (not in allocation, correct blood type + component type, available status, from correct PMI)
       supabase
         .from("blood_stock")
         .select(`
           id,
           batch_number,
           blood_type,
+          component_type,
           expiry_date,
           quantity,
           institution_id,
@@ -378,6 +385,7 @@ const getBloodWithFreeStock = async (req, res) => {
           created_at
         `)
         .eq("blood_type", request.blood_type)
+        .eq("component_type", requiredComponentType)
         .eq("status", "available")
         .eq("institution_id", pmiId)
     ]);
@@ -469,6 +477,7 @@ const getBloodWithFreeStock = async (req, res) => {
         request: {
           id: request.id,
           blood_type: request.blood_type,
+          component_type: requiredComponentType,
           quantity_needed: quantityNeeded,
           status: request.status
         },

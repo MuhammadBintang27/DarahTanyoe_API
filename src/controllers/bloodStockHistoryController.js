@@ -18,7 +18,7 @@ const errorResponse = (res, message, statusCode = 500) => {
 // Get blood stock history for PMI
 export const getBloodStockHistory = async (req, res) => {
   try {
-    const { pmiId, bloodType, startDate, endDate, actionType, page = 1, limit = 10 } = req.query;
+    const { pmiId, bloodType, componentType, startDate, endDate, actionType, page = 1, limit = 10 } = req.query;
 
     if (!pmiId) {
       return errorResponse(res, 'PMI ID is required', 400);
@@ -38,6 +38,10 @@ export const getBloodStockHistory = async (req, res) => {
     // Apply filters to count query
     if (bloodType) {
       countQuery = countQuery.eq('blood_type', bloodType);
+    }
+
+    if (componentType) {
+      countQuery = countQuery.eq('component_type', componentType);
     }
 
     if (actionType) {
@@ -80,6 +84,10 @@ export const getBloodStockHistory = async (req, res) => {
     // Apply filters
     if (bloodType) {
       query = query.eq('blood_type', bloodType);
+    }
+
+    if (componentType) {
+      query = query.eq('component_type', componentType);
     }
 
     if (actionType) {

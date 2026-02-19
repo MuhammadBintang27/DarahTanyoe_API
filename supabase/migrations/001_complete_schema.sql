@@ -252,6 +252,7 @@
     rejection_reason TEXT,
     completion_notes TEXT,
     next_eligible_date DATE,
+    components_created BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -272,7 +273,7 @@
     storage_temperature DECIMAL(4,2),
     temperature_log JSONB,
     quality_check JSONB,
-    component_type VARCHAR(50) DEFAULT 'whole_blood',
+    component_type VARCHAR(50) NOT NULL DEFAULT 'WB' CHECK (component_type IN ('WB', 'PRC', 'FFP', 'TC', 'Cryo')),
     crossmatch_data JSONB,
     screening_results JSONB,
     reserved_by UUID REFERENCES institutions(id),
@@ -303,6 +304,7 @@
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
     blood_type blood_type NOT NULL,
+    component_type VARCHAR(50) NOT NULL DEFAULT 'WB' CHECK (component_type IN ('WB', 'PRC', 'FFP', 'TC', 'Cryo')),
     change_type VARCHAR(20) NOT NULL CHECK (change_type IN ('add', 'reduce', 'used', 'expired')),
     quantity_change INTEGER NOT NULL CHECK (quantity_change > 0),
     previous_quantity INTEGER NOT NULL DEFAULT 0,
@@ -324,6 +326,7 @@
     patient_name VARCHAR(255) NOT NULL,
     phone_number VARCHAR(20) NOT NULL,
     blood_type blood_type NOT NULL,
+    component_type VARCHAR(50) NOT NULL DEFAULT 'WB' CHECK (component_type IN ('WB', 'PRC', 'FFP', 'TC', 'Cryo')),
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     unit_type VARCHAR(20) DEFAULT 'kantong',
     urgency_level priority_level DEFAULT 'medium',
@@ -678,12 +681,14 @@
     CREATE INDEX idx_blood_stock_status ON blood_stock(status);
     CREATE INDEX idx_blood_stock_expiry_date ON blood_stock(expiry_date);
     CREATE INDEX idx_blood_stock_batch_number ON blood_stock(batch_number);
+    CREATE INDEX idx_blood_stock_component_type ON blood_stock(component_type);
 
     -- Blood stock history indexes
     CREATE INDEX idx_blood_stock_history_institution ON blood_stock_history(institution_id);
     CREATE INDEX idx_blood_stock_history_blood_type ON blood_stock_history(blood_type);
     CREATE INDEX idx_blood_stock_history_created_at ON blood_stock_history(created_at DESC);
     CREATE INDEX idx_blood_stock_history_change_type ON blood_stock_history(change_type);
+    CREATE INDEX idx_blood_stock_history_component_type ON blood_stock_history(component_type);
 
     -- Blood requests indexes
     CREATE INDEX idx_blood_requests_requester_id ON blood_requests(requester_id);
@@ -691,6 +696,7 @@
     CREATE INDEX idx_blood_requests_blood_type ON blood_requests(blood_type);
     CREATE INDEX idx_blood_requests_status ON blood_requests(status);
     CREATE INDEX idx_blood_requests_urgency ON blood_requests(urgency_level);
+    CREATE INDEX idx_blood_requests_component_type ON blood_requests(component_type);
 
     -- Pickup schedules indexes
     CREATE INDEX idx_pickup_schedules_request_id ON pickup_schedules(request_id);
@@ -935,7 +941,8 @@ $$ language 'plpgsql';
     -- Function: Get available blood for a specific request (considering allocations)
     CREATE OR REPLACE FUNCTION get_available_blood_for_request(
         p_request_id UUID,
-        p_blood_type blood_type
+        p_blood_type blood_type,
+        p_component_type VARCHAR(50) DEFAULT 'WB'
     )
     RETURNS TABLE (
         stock_id UUID,
@@ -957,6 +964,7 @@ $$ language 'plpgsql';
         WHERE 
             ba.blood_request_id = p_request_id
             AND bs.blood_type = p_blood_type
+            AND bs.component_type = p_component_type
             AND ba.status IN ('allocated'::allocation_status, 'partial_pickup'::allocation_status)
             AND bs.status = 'available'::stock_status
             AND bs.expiry_date >= CURRENT_DATE
@@ -1828,6 +1836,7 @@ $$ language 'plpgsql';
     quantity_allocated INTEGER NOT NULL CHECK (quantity_allocated > 0),
     quantity_picked_up INTEGER DEFAULT 0 CHECK (quantity_picked_up >= 0),
     status allocation_status DEFAULT 'allocated',
+    component_type VARCHAR(50) NOT NULL DEFAULT 'WB' CHECK (component_type IN ('WB', 'PRC', 'FFP', 'TC', 'Cryo')),
     
     -- Priority & notes
     priority INTEGER DEFAULT 0,
@@ -1856,6 +1865,7 @@ $$ language 'plpgsql';
     CREATE INDEX idx_blood_allocation_fulfillment ON blood_allocation(fulfillment_request_id);
     CREATE INDEX idx_blood_allocation_stock ON blood_allocation(blood_stock_id);
     CREATE INDEX idx_blood_allocation_status ON blood_allocation(status);
+    CREATE INDEX idx_blood_allocation_component_type ON blood_allocation(component_type);
     CREATE INDEX idx_blood_allocation_allocated_at ON blood_allocation(allocated_at DESC);
     CREATE INDEX idx_blood_allocation_picked_up_at ON blood_allocation(picked_up_at DESC);
 
