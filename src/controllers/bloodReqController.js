@@ -13,6 +13,56 @@ const createBloodReq = async (req, res) => {
     // Remove deprecated fields
     const { expiry_date, needed_by, reason, ...cleanBody } = requestBody;
     
+    // ============================================
+    // VALIDATE MEDICAL FIELDS (for compliance)
+    // ============================================
+    
+    // Validate NIK (must be 16 digits)
+    if (cleanBody.patient_nik) {
+      const nikRegex = /^[0-9]{16}$/;
+      if (!nikRegex.test(cleanBody.patient_nik)) {
+        return response.sendBadRequest(res, 'NIK harus terdiri dari 16 digit angka');
+      }
+    }
+    
+    // Validate patient gender
+    if (cleanBody.patient_gender && !['Laki-laki', 'Perempuan'].includes(cleanBody.patient_gender)) {
+      return response.sendBadRequest(res, 'Jenis kelamin harus "Laki-laki" atau "Perempuan"');
+    }
+    
+    // Validate birth date (not in future)
+    if (cleanBody.patient_birth_date) {
+      const birthDate = new Date(cleanBody.patient_birth_date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (birthDate > today) {
+        return response.sendBadRequest(res, 'Tanggal lahir tidak boleh di masa depan');
+      }
+      
+      // Check if birth date is valid
+      if (isNaN(birthDate.getTime())) {
+        return response.sendBadRequest(res, 'Format tanggal lahir tidak valid');
+      }
+    }
+    
+    // Validate required medical fields for new requests
+    // (These are now standard for proper medical documentation)
+    const requiredMedicalFields = {
+      patient_nik: 'NIK Pasien',
+      patient_birth_date: 'Tanggal Lahir Pasien',
+      patient_gender: 'Jenis Kelamin Pasien',
+      prescribing_doctor: 'Nama Dokter Penanggung Jawab',
+    };
+    
+    for (const [field, label] of Object.entries(requiredMedicalFields)) {
+      if (!cleanBody[field]) {
+        return response.sendBadRequest(res, `${label} wajib diisi`);
+      }
+    }
+    
+    // ============================================
+    
     const payload = {
       ...cleanBody,
       // Map reason to medical_condition if medical_condition not provided

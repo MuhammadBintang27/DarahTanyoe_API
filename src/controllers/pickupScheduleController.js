@@ -74,14 +74,30 @@ export const getPickupSchedules = async (req, res) => {
 // This endpoint was not called by frontend and is removed for code cleanliness
 
 
-// Confirm pickup with unique code
+// Confirm pickup with unique code and sample verification
 export const confirmPickup = async (req, res) => {
   try {
     const { id } = req.params;
-    const { uniqueCode, pmiId } = req.body;
+    const { 
+      uniqueCode, 
+      pmiId,
+      sample_verified,          // NEW: Boolean (required)
+      sample_test_result,       // NEW: 'compatible' or 'incompatible'
+      sample_verification_notes // NEW: Optional text from lab
+    } = req.body;
 
     if (!uniqueCode || !pmiId) {
       return response.sendBadRequest(res, 'Unique code and PMI ID are required');
+    }
+
+    // Validate sample verification is required
+    if (sample_verified !== true) {
+      return response.sendBadRequest(res, 'Verifikasi sample darah pasien wajib dilakukan sebelum pickup dikonfirmasi');
+    }
+
+    // Validate test result is provided
+    if (!sample_test_result || !['compatible', 'incompatible'].includes(sample_test_result)) {
+      return response.sendBadRequest(res, 'Hasil uji sample (compatible/incompatible) harus diisi');
     }
 
     // Get pickup schedule
@@ -110,13 +126,233 @@ export const confirmPickup = async (req, res) => {
       return response.sendBadRequest(res, 'Invalid unique code');
     }
 
-    // Update pickup schedule status
+    // ============================================
+    // HANDLE INCOMPATIBLE SAMPLE
+    // ============================================
+    if (sample_test_result === 'incompatible') {
+      console.log(`Sample incompatible for pickup ${id}, cancelling pickup and rejecting request`);
+
+      // ============================================
+      // ROLLBACK STOCK ALLOCATIONS AND FREE STOCK
+      // ============================================
+      
+      // 1. Rollback Allocated Stock (blood_allocation)
+      // Find all allocations for this request
+      const { data: allocations, error: allocError } = await supabase
+        .from('blood_allocation')
+        .select('id, quantity_allocated, blood_stock_id, blood_stock:blood_stock(id, quantity, institution_id, blood_type)')
+        .eq('blood_request_id', schedule.request_id);
+
+      if (allocError) {
+        console.error('Error fetching allocations for rollback:', allocError);
+      } else if (allocations && allocations.length > 0) {
+        console.log(`🔄 Rolling back ${allocations.length} allocations...`);
+
+        for (const alloc of allocations) {
+          // Free the blood_stock - change status to 'available' (not reserved anymore)
+          const { error: stockUpdateError } = await supabase
+            .from('blood_stock')
+            .update({
+              status: 'available',
+              reserved_by: null,
+              reserved_at: null,
+              reservation_expires: null,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', alloc.blood_stock_id);
+
+          if (stockUpdateError) {
+            console.error(`❌ Error freeing blood_stock ${alloc.blood_stock_id}:`, stockUpdateError);
+          } else {
+            console.log(`✅ Freed blood_stock ${alloc.blood_stock_id}: status → available, cleared reservation`);
+          }
+
+          // Log rollback to history
+          await supabase
+            .from('blood_stock_history')
+            .insert({
+              institution_id: alloc.blood_stock.institution_id,
+              blood_type: alloc.blood_stock.blood_type,
+              change_type: 'add',
+              quantity_change: alloc.quantity_allocated,
+              previous_quantity: 0,
+              new_quantity: alloc.quantity_allocated,
+              notes: `Rollback allocation: Sample tidak compatible untuk request #${schedule.request_id.substring(0, 8)}. Stock dikembalikan ke available.`,
+              created_by: pmiId
+            });
+        }
+
+        // Hard delete all allocations for this request
+        const { error: deleteError } = await supabase
+          .from('blood_allocation')
+          .delete()
+          .eq('blood_request_id', schedule.request_id);
+
+        if (deleteError) {
+          console.error(`❌ Error deleting allocations:`, deleteError);
+        } else {
+          console.log(`✅ Deleted ${allocations.length} allocation records (temporary data cleared)`);
+        }
+      }
+
+      // 2. Rollback Free Stock (blood_stock)
+      // Find all free stocks that were used for this request
+      const requestIdPattern = `%${schedule.request_id.substring(0, 8)}%`;
+      const { data: freeStocks, error: freeStockError } = await supabase
+        .from('blood_stock')
+        .select('id, quantity, used_for, institution_id, blood_type')
+        .eq('status', 'used')
+        .like('used_for', requestIdPattern);
+
+      if (freeStockError) {
+        console.error('Error fetching free stocks for rollback:', freeStockError);
+      } else if (freeStocks && freeStocks.length > 0) {
+        console.log(`🔄 Rolling back ${freeStocks.length} free stock records...`);
+
+        for (const stock of freeStocks) {
+          // Get the history entry to find out how much quantity was reduced
+          const historyPattern = `%Free stock digunakan untuk blood request #${schedule.request_id.substring(0, 8)}%`;
+          const { data: historyEntries, error: historyError } = await supabase
+            .from('blood_stock_history')
+            .select('quantity_change, previous_quantity, new_quantity')
+            .eq('institution_id', stock.institution_id)
+            .eq('blood_type', stock.blood_type)
+            .eq('change_type', 'used')
+            .like('notes', historyPattern)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          if (historyError || !historyEntries || historyEntries.length === 0) {
+            console.warn(`⚠️ No history found for stock ${stock.id}, cannot restore quantity precisely`);
+            // Fallback: just restore status without changing quantity
+            const { error: stockRestoreError } = await supabase
+              .from('blood_stock')
+              .update({
+                status: 'available',
+                used_for: null,
+                used_at: null,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', stock.id);
+
+            if (stockRestoreError) {
+              console.error(`❌ Error restoring free stock ${stock.id}:`, stockRestoreError);
+            } else {
+              console.log(`✅ Restored free stock ${stock.id}: status → available (quantity unchanged)`);
+            }
+          } else {
+            // Restore quantity from history
+            const history = historyEntries[0];
+            const restoredQuantity = stock.quantity + history.quantity_change;
+
+            const { error: stockRestoreError } = await supabase
+              .from('blood_stock')
+              .update({
+                quantity: restoredQuantity,
+                status: 'available',
+                used_for: null,
+                used_at: null,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', stock.id);
+
+            if (stockRestoreError) {
+              console.error(`❌ Error restoring free stock ${stock.id}:`, stockRestoreError);
+            } else {
+              console.log(`✅ Restored free stock ${stock.id}: quantity ${stock.quantity} → ${restoredQuantity}, status → available`);
+              
+              // Log history for the rollback
+              await supabase
+                .from('blood_stock_history')
+                .insert({
+                  institution_id: stock.institution_id,
+                  blood_type: stock.blood_type,
+                  change_type: 'add',
+                  quantity_change: history.quantity_change,
+                  previous_quantity: stock.quantity,
+                  new_quantity: restoredQuantity,
+                  notes: `Rollback: Sample tidak compatible untuk request #${schedule.request_id.substring(0, 8)}. Stock dikembalikan.`,
+                  created_by: pmiId
+                });
+            }
+          }
+        }
+      }
+
+      console.log('✅ Stock rollback completed');
+
+      // ============================================
+      // UPDATE PICKUP AND REQUEST STATUS
+      // ============================================
+
+      // Update pickup schedule to cancelled
+      const { error: cancelError } = await supabase
+        .from('pickup_schedules')
+        .update({
+          status: 'cancelled',
+          sample_verified: true,
+          sample_test_result: 'incompatible',
+          sample_verification_notes,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+      if (cancelError) {
+        console.error('Error cancelling pickup:', cancelError);
+        return response.sendServerError(res, 'Error cancelling pickup');
+      }
+
+      // Update blood request to rejected
+      const rejectionReason = `Sample darah pasien tidak compatible setelah uji cross-match.${sample_verification_notes ? ' ' + sample_verification_notes : ''}`;
+      
+      const { error: rejectError } = await supabase
+        .from('blood_requests')
+        .update({
+          status: 'rejected',
+          rejection_reason: rejectionReason,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', schedule.request_id);
+
+      if (rejectError) {
+        console.error('Error rejecting request:', rejectError);
+        return response.sendServerError(res, 'Error rejecting request');
+      }
+
+      // Invalidate cache
+      await invalidateForRequest(schedule.request_id, { includeStock: true });
+      await invalidateForPartnerStock(pmiId);
+
+      return response.sendSuccess(res, {
+        message: 'Pickup dibatalkan karena sample darah tidak compatible. Stok darah dikembalikan. Permintaan ditolak.',
+        data: {
+          pickup_status: 'cancelled',
+          request_status: 'rejected',
+          rejection_reason: rejectionReason,
+          rollback: {
+            allocations_restored: allocations?.length || 0,
+            free_stocks_restored: freeStocks?.length || 0
+          }
+        }
+      });
+    }
+
+    // ============================================
+    // HANDLE COMPATIBLE SAMPLE - PROCEED WITH PICKUP
+    // ============================================
+    console.log(`✅ Sample compatible for pickup ${id}, proceeding with pickup confirmation`);
+
+
+    // Update pickup schedule status with sample verification
     const { error: updateError } = await supabase
       .from('pickup_schedules')
       .update({
         status: 'completed',
         confirmed_at: new Date().toISOString(),
         confirmed_by: pmiId,
+        sample_verified: true,
+        sample_test_result: 'compatible',
+        sample_verification_notes,
         updated_at: new Date().toISOString()
       })
       .eq('id', id);
@@ -189,6 +425,19 @@ export const confirmPickup = async (req, res) => {
     if (requestError) {
       console.error('Error updating request status:', requestError);
       return response.sendServerError(res, 'Error updating request status');
+    }
+
+    // Hard delete allocations - no longer needed after pickup completed
+    // Audit trail is preserved in blood_stock_history and pickup_schedules
+    const { error: deleteAllocError } = await supabase
+      .from('blood_allocation')
+      .delete()
+      .eq('blood_request_id', schedule.request_id);
+
+    if (deleteAllocError) {
+      console.warn('⚠️ Could not delete allocations:', deleteAllocError.message);
+    } else {
+      console.log('✅ Allocation records deleted (temporary data cleared)');
     }
 
     // Centralized invalidation

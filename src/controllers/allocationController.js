@@ -677,6 +677,14 @@ const confirmPickupWithFreeStock = async (req, res) => {
     const hospitalId = hospital.id;
     const pickupLocation = hospital.institution_name || hospital.address || "Hospital Location";
 
+    // Prepare notes with sample instruction
+    const sampleInstruction = `
+⚠️ INSTRUKSI PENTING:
+• Bawa SAMPEL DARAH PASIEN untuk uji cross-match
+• PMI akan verifikasi sample sebelum menyerahkan darah
+• Bawa identitas pasien dan surat rujukan
+${notes ? '\nCatatan PMI:\n' + notes : ''}`.trim();
+
     console.log(`📍 Creating pickup schedule with:`, {
       unique_code: uniqueCode,
       pmi_id: pmiId,
@@ -695,7 +703,7 @@ const confirmPickupWithFreeStock = async (req, res) => {
         pickup_location: pickupLocation,
         unique_code: uniqueCode,
         status: "scheduled",
-        notes: notes || null  // Gunakan catatan dari PMI, atau null jika tidak ada
+        notes: sampleInstruction
       })
       .select("id")
       .single();
@@ -935,14 +943,14 @@ const confirmPickupWithFreeStock = async (req, res) => {
 
       console.log(`✅ Blood request marked as PICKUP_SCHEDULED`);
 
-      // Send notification
+      // Send notification with sample instruction
       try {
         if (request.requester_id) {
           await notificationService.notify({
             institutionId: request.requester_id,
             type: "request",
             title: "Darah Siap Diambil!",
-            message: `Darah ${request.blood_type} telah disiapkan (${grandTotal} unit). Jadwal pickup: ${pickupDate} jam ${pickupTime}`,
+            message: `Darah ${request.blood_type} telah disiapkan (${grandTotal} unit). Jadwal pickup: ${pickupDate} jam ${pickupTime}. ⚠️ PENTING: Bawa sampel darah pasien untuk uji cross-match saat pickup.`,
             priority: "high",
             relatedId: blood_request_id,
             relatedType: "blood_request"

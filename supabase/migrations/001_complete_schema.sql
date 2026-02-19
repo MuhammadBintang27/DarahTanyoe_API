@@ -341,6 +341,11 @@
     rejection_reason TEXT,
     cancellation_reason TEXT,
     notes TEXT,
+    patient_nik VARCHAR(16) CHECK (patient_nik IS NULL OR (patient_nik ~ '^[0-9]{16}$')),
+    patient_birth_date DATE CHECK (patient_birth_date IS NULL OR patient_birth_date <= CURRENT_DATE),
+    patient_gender VARCHAR(10) CHECK (patient_gender IS NULL OR patient_gender IN ('Laki-laki', 'Perempuan')),
+    prescribing_doctor VARCHAR(255),
+    doctor_license VARCHAR(50),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -359,6 +364,9 @@
     confirmed_at TIMESTAMPTZ,
     confirmed_by UUID REFERENCES institutions(id),
     notes TEXT,
+    sample_verified BOOLEAN DEFAULT false,
+    sample_verification_notes TEXT,
+    sample_test_result VARCHAR(50),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -691,6 +699,7 @@
     CREATE INDEX idx_pickup_schedules_status ON pickup_schedules(status);
     CREATE INDEX idx_pickup_schedules_unique_code ON pickup_schedules(unique_code);
     CREATE INDEX idx_pickup_schedules_pickup_date ON pickup_schedules(pickup_date);
+    CREATE INDEX idx_pickup_schedules_sample_verified ON pickup_schedules(sample_verified) WHERE sample_verified = true;
 
     -- Campaign indexes
     CREATE INDEX idx_campaigns_organizer_id ON blood_campaigns(organizer_id);
@@ -803,6 +812,22 @@ WHERE hospital_id IS NOT NULL;
 -- Blood Stock History: Optimize institution history queries
 CREATE INDEX IF NOT EXISTS idx_blood_stock_history_institution_type 
 ON blood_stock_history (institution_id, change_type, created_at DESC);
+
+-- ========================================
+-- COLUMN COMMENTS (Documentation)
+-- ========================================
+
+-- Blood Requests: Medical and Patient Identity Fields
+COMMENT ON COLUMN blood_requests.patient_nik IS 'NIK Pasien (Nomor Induk Kependudukan) - 16 digit';
+COMMENT ON COLUMN blood_requests.patient_birth_date IS 'Tanggal lahir pasien untuk verifikasi identitas';
+COMMENT ON COLUMN blood_requests.patient_gender IS 'Jenis kelamin pasien: Laki-laki atau Perempuan';
+COMMENT ON COLUMN blood_requests.prescribing_doctor IS 'Nama dokter penanggung jawab yang meresepkan transfusi';
+COMMENT ON COLUMN blood_requests.doctor_license IS 'Nomor SIP/STR dokter (opsional)';
+
+-- Pickup Schedules: Sample Verification Fields
+COMMENT ON COLUMN pickup_schedules.sample_verified IS 'Whether blood sample was verified at pickup';
+COMMENT ON COLUMN pickup_schedules.sample_verification_notes IS 'Lab technician notes from sample verification';
+COMMENT ON COLUMN pickup_schedules.sample_test_result IS 'Result of cross-match test: compatible, incompatible, or null';
 
 -- ========================================
 -- TRIGGERS FOR AUTOMATION
