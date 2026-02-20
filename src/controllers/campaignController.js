@@ -150,8 +150,7 @@ const createCampaign = async (req, res) => {
                 fulfillment_request_id: fulfillment.id,
                 campaign_id: newCampaign.id,
                 donor_id: donor.donor_id,
-                status: 'pending',
-                code_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+                status: 'pending'
               }));
 
               await supabase

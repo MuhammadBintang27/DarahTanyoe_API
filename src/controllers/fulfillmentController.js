@@ -1397,8 +1397,7 @@ const initiateFulfillment = async (req, res) => {
         campaign_id: fulfillment.campaign_id,
         donor_id: donor.donor_id, // RPC returns 'donor_id'
         status: 'pending',
-        distance_km: donor.distance_km, // RPC returns 'distance_km'
-        code_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+        distance_km: donor.distance_km // RPC returns 'distance_km'
       }));
 
       await supabase
@@ -1669,7 +1668,7 @@ ${appUrl}
 
 Silakan datang ke PMI dengan kode unik ini untuk verifikasi dan donasi. Terima kasih telah menyelamatkan nyawa!`;
 
-        await sendWhatsAppNotification(updated.donor.phone_number, message);
+        // await sendWhatsAppNotification(updated.donor.phone_number, message);
         console.log(`📱 WhatsApp sent to ${updated.donor.full_name} (campaign donor)`);
       }
     } catch (whatsappError) {

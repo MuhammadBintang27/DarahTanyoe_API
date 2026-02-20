@@ -1337,7 +1337,7 @@ $$ language 'plpgsql';
             END IF;
             
             IF NEW.code_expires_at IS NULL THEN
-                NEW.code_expires_at := NOW() + INTERVAL '7 days';
+                NEW.code_expires_at := NOW() + INTERVAL '1 day'; -- 24 jam
             END IF;
             
             NEW.confirmed_at := NOW();
