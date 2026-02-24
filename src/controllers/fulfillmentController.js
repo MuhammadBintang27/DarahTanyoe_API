@@ -1668,7 +1668,7 @@ ${appUrl}
 
 Silakan datang ke PMI dengan kode unik ini untuk verifikasi dan donasi. Terima kasih telah menyelamatkan nyawa!`;
 
-        // await sendWhatsAppNotification(updated.donor.phone_number, message);
+        await sendWhatsAppNotification(updated.donor.phone_number, message);
         console.log(`📱 WhatsApp sent to ${updated.donor.full_name} (campaign donor)`);
       }
     } catch (whatsappError) {
