@@ -305,7 +305,7 @@ const completeJanjiDonor = async (req, res) => {
     console.log(`✅ Janji Donor completed: Created donation ${donation.id} with status "pending" - ready for component processing`);
 
     // Invalidate caches
-    await invalidateForRequest(pmi_id, null);
+    await invalidateForPartnerStock(pmi_id);
 
     // Notify donor
     try {
