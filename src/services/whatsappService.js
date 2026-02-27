@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // Signature untuk semua pesan WhatsApp
-const WHATSAPP_SIGNATURE = "\n\n---\n🩸 *DarahTanyoe*\nTransparan, Terhubung, Terselamatkan";
+const WHATSAPP_SIGNATURE = "\n\n*DarahTanyoe*\nTransparan, Terhubung, Terselamatkan";
 
 // Fungsi untuk menambahkan signature ke pesan
 const addSignature = (message) => {

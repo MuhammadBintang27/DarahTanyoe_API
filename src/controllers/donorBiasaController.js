@@ -138,7 +138,7 @@ const createJanjiDonor = async (req, res) => {
         
         const message = `Terima kasih telah bersedia mendonorkan darah! 🩸\n\nJANJI DONOR ANDA:\nKode Unik: *${confirmed.unique_code}*\nGolongan Darah: ${confirmed.donor?.blood_type || blood_type}\nBerlaku sampai: ${formatDate(confirmed.code_expires_at)}\n\n📱 Buka di aplikasi:\n${appUrl}\n\nSilakan datang ke PMI dengan kode unik ini untuk verifikasi dan donasi. Terima kasih telah menyelamatkan nyawa!`;
 
-        // await sendWhatsAppNotification(donor.phone_number, message);
+        await sendWhatsAppNotification(donor.phone_number, message);
         console.log(`📱 WhatsApp sent to ${donor.full_name} (walk-in donor)`);
       }
     } catch (whatsappError) {
