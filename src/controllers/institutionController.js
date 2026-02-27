@@ -1,6 +1,7 @@
 import supabase from "../config/db.js";
 import response from "../helpers/responses.js";
 import bcrypt from "bcrypt";
+import { invalidate } from "../utils/cache.js";
 
 // Register Institution (RS/PMI)
 const registerInstitution = async (req, res) => {
@@ -67,6 +68,25 @@ const registerInstitution = async (req, res) => {
     // Remove password from response
     const institutionData = { ...data[0] };
     delete institutionData.password;
+
+    // Invalidate relevant caches after new institution registration
+    try {
+      const keysToInvalidate = [
+        `partners:institution:${institutionData.id}`,
+      ];
+      
+      // Invalidate first 10 pages of partner list (most commonly accessed)
+      for (let page = 1; page <= 10; page++) {
+        for (const limit of [20, 50, 100]) {
+          keysToInvalidate.push(`partners:with_stock:page${page}:limit${limit}`);
+        }
+      }
+      
+      await invalidate(keysToInvalidate);
+      console.log(`[cache] ✅ Invalidated ${keysToInvalidate.length} partner cache keys after ${institution_type} registration`);
+    } catch (e) {
+      console.warn('[cache] ⚠️ Failed to invalidate cache after registration:', e?.message);
+    }
 
     return response.sendCreated(res, {
       message: "Institusi berhasil didaftarkan",
