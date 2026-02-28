@@ -91,7 +91,10 @@ const processDonation = async (req, res) => {
     // Get donation details
     const { data: donation, error: donationError } = await supabase
       .from("donations")
-      .select("*, pmi:institutions!donations_institution_id_fkey(id, institution_name)")
+      .select(`
+        *,
+        pmi:institutions!donations_institution_id_fkey(id, institution_name)
+      `)
       .eq("id", donation_id)
       .single();
 
@@ -215,16 +218,113 @@ const processDonation = async (req, res) => {
       return response.sendBadRequest(res, updateError.message);
     }
 
+    // ========================================
+    // AUTO-ALLOCATION: Allocate stock to blood_request from fulfillment
+    // ========================================
+    let allocationsCreated = 0;
+    let targetRequestId = null;
+
+    try {
+      // Check if this donation is from a fulfillment (has donor_confirmation)
+      const { data: confirmation, error: confirmError } = await supabase
+        .from("donor_confirmations")
+        .select("fulfillment_request_id, fulfillment:fulfillment_requests(blood_request_id)")
+        .eq("donation_id", donation_id)
+        .single();
+
+      if (confirmError) {
+        console.log(`ℹ️ No confirmation found - general donation (free stock)`);
+      } else if (confirmation?.fulfillment?.blood_request_id) {
+        targetRequestId = confirmation.fulfillment.blood_request_id;
+        console.log(`🎯 Target blood_request: ${targetRequestId.substring(0, 8)}`);
+        
+        // Get blood request details to know what component type is needed
+        const { data: bloodRequest, error: requestError } = await supabase
+          .from("blood_requests")
+          .select("component_type, quantity, requester_id, blood_type, status")
+          .eq("id", targetRequestId)
+          .single();
+        
+        if (requestError) {
+          console.warn(`⚠️ Blood request query error: ${requestError.message}`);
+        }
+        
+        if (bloodRequest) {
+          console.log(`📋 Blood request details: ${bloodRequest.blood_type} ${bloodRequest.component_type}, qty: ${bloodRequest.quantity}, status: ${bloodRequest.status}`);
+          
+          // Only allocate stock that matches the requested component type
+          const allocations = createdStock
+            .filter(stock => stock.component_type === bloodRequest.component_type)
+            .map(stock => ({
+              blood_request_id: targetRequestId,
+              blood_stock_id: stock.id,
+              fulfillment_request_id: confirmation.fulfillment_request_id,
+              quantity_allocated: stock.quantity,
+              quantity_picked_up: 0,
+              status: "allocated",
+              notes: `Allocated from fulfillment donation`
+            }));
+
+        if (allocations.length > 0) {
+          // Batch insert allocations
+          const { data: created, error: allocError } = await supabase
+            .from("blood_allocation")
+            .insert(allocations)
+            .select();
+
+          if (!allocError && created) {
+            allocationsCreated = created.length;
+            const totalAllocated = created.reduce((sum, a) => sum + a.quantity_allocated, 0);
+
+            // Update blood request status
+            const newStatus = totalAllocated >= bloodRequest.quantity ? "allocated" : "partial";
+            await supabase
+              .from("blood_requests")
+              .update({ status: newStatus })
+              .eq("id", targetRequestId);
+
+            console.log(`✅ Created ${allocationsCreated} allocations for request ${targetRequestId.substring(0, 8)} (${newStatus})`);
+
+            // Send notification to hospital
+            try {
+              const notificationService = (await import("../services/notificationService.js")).default;
+              await notificationService.notifyInstitution({
+                institutionId: bloodRequest.requester_id,
+                type: 'blood_available',
+                title: 'Darah Tersedia',
+                message: `${totalAllocated} kantong darah ${bloodRequest.blood_type} (${bloodRequest.component_type}) dari pemenuhan telah siap dijemput`,
+                priority: 'high',
+                relatedId: targetRequestId,
+                relatedType: 'blood_request'
+              });
+            } catch (e) {
+              console.error("⚠️ Notification error:", e.message);
+            }
+          } else if (allocError) {
+            console.error("❌ Failed to create allocations:", allocError.message);
+          }
+        } else {
+          console.log(`ℹ️ No matching stock components (request needs ${bloodRequest.component_type}, created: ${createdStock.map(s => s.component_type).join(', ')})`);
+        }
+      } else {
+        console.warn(`⚠️ Blood request ${targetRequestId.substring(0, 8)} not found or deleted - stock will be free stock`);
+      }
+      }
+    } catch (allocError) {
+      console.error("⚠️ Allocation error:", allocError.message);
+    }
+
     // Invalidate caches
     invalidate("donations:*");
     invalidate("stock:*");
     invalidate(`pmi:${donation.institution_id}:*`);
 
     return response.sendSuccess(res, {
-      message: `Berhasil memproses donasi menjadi ${createdStock.length} komponen`,
+      message: `Berhasil memproses donasi menjadi ${createdStock.length} komponen${allocationsCreated > 0 ? ' dan dialokasikan' : ''}`,
       data: {
         donation_id,
         components_created: createdStock.length,
+        allocations_created: allocationsCreated,
         stock: createdStock
       }
     });

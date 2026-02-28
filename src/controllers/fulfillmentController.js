@@ -1246,19 +1246,31 @@ const completeDonation = async (req, res) => {
       await invalidateForPartnerStock(pmi_id);
     }
 
-    // Update fulfillment request - only update completed_donors count
-    // quantity_collected will be updated later when donation is processed
+    // Update fulfillment request - update both completed_donors and quantity_collected
     const newCompletedDonors = (confirmation.fulfillment.completed_donors || 0) + 1;
+    const currentQuantityCollected = confirmation.fulfillment.quantity_collected || 0;
+    const newQuantityCollected = currentQuantityCollected + quantity;
+    const targetQuantity = confirmation.fulfillment.quantity_needed || 0;
     
-    // Update completed_donors count
+    // Check if fulfillment is now complete
+    const isFulfilled = newQuantityCollected >= targetQuantity;
+    const fulfillmentUpdateData = {
+      completed_donors: newCompletedDonors,
+      quantity_collected: newQuantityCollected
+    };
+    
+    if (isFulfilled && confirmation.fulfillment.status !== 'fulfilled') {
+      fulfillmentUpdateData.status = 'fulfilled';
+      fulfillmentUpdateData.completed_at = new Date().toISOString();
+    }
+    
+    // Update completed_donors count and quantity_collected
     await supabase
       .from("fulfillment_requests")
-      .update({
-        completed_donors: newCompletedDonors
-      })
+      .update(fulfillmentUpdateData)
       .eq("id", confirmation.fulfillment_request_id);
 
-    console.log(`📊 Fulfillment #${confirmation.fulfillment_request_id} progress: ${newCompletedDonors} donors completed (stock will be added after processing)`);
+    console.log(`📊 Fulfillment #${confirmation.fulfillment_request_id} progress: ${newCompletedDonors} donors completed, ${newQuantityCollected}/${targetQuantity} units collected${isFulfilled ? ' ✅ FULFILLED!' : ''}`);
 
     // Note: Fulfillment status will be updated after donations are processed
     // and stock is created in the donation processing page
@@ -1281,16 +1293,34 @@ const completeDonation = async (req, res) => {
     }
 
     if (campaignId) {
+      const { data: currentCampaign } = await supabase
+        .from("blood_campaigns")
+        .select("current_quantity, target_quantity")
+        .eq("id", campaignId)
+        .single();
+      
+      const currentCampaignQuantity = currentCampaign?.current_quantity || 0;
+      const newCampaignQuantity = currentCampaignQuantity + quantity;
+      const campaignTargetQuantity = currentCampaign?.target_quantity || 0;
+      const isCampaignFulfilled = newCampaignQuantity >= campaignTargetQuantity;
+      
+      const campaignUpdateData = {
+        current_donors: newCompletedDonors,
+        current_quantity: newCampaignQuantity
+      };
+      
+      if (isCampaignFulfilled) {
+        campaignUpdateData.status = 'completed';
+        campaignUpdateData.completed_at = new Date().toISOString();
+      }
+      
       const { error: campaignError } = await supabase
         .from("blood_campaigns")
-        .update({
-          current_donors: newCompletedDonors
-          // Note: current_quantity will be updated after donation processing
-        })
+        .update(campaignUpdateData)
         .eq("id", campaignId);
 
       if (!campaignError) {
-        console.log(`📊 Campaign ${campaignId} progress: ${newCompletedDonors} donors completed (stock pending processing)`);
+        console.log(`📊 Campaign ${campaignId} progress: ${newCompletedDonors} donors completed, ${newCampaignQuantity}/${campaignTargetQuantity} units collected${isCampaignFulfilled ? ' ✅ CAMPAIGN COMPLETED!' : ''}`);
       } else {
         console.warn(`⚠️ Failed to update campaign: ${campaignError.message}`);
       }
@@ -1316,11 +1346,16 @@ const completeDonation = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Donasi berhasil diselesaikan. Menunggu pemrosesan di laboratorium.",
+      message: isFulfilled 
+        ? "Donasi berhasil diselesaikan. Target pemenuhan telah tercapai! ✅" 
+        : "Donasi berhasil diselesaikan. Menunggu pemrosesan di laboratorium.",
       data: {
         donation,
         confirmation: updated,
         completed_donors: newCompletedDonors,
+        quantity_collected: newQuantityCollected,
+        target_quantity: targetQuantity,
+        is_fulfilled: isFulfilled,
         note: "Donasi akan diproses di halaman Donasi/Processing untuk pemeriksaan dan pemisahan komponen"
       }
     });

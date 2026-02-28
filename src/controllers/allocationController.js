@@ -408,13 +408,19 @@ const getBloodWithFreeStock = async (req, res) => {
       console.log(`     quantity_allocated: ${a.quantity_allocated}`);
       console.log(`     quantity_picked_up: ${a.quantity_picked_up}`);
       console.log(`     quantity_pending: ${a.quantity_allocated - a.quantity_picked_up}`);
-      console.log(`     blood_stock_id: ${a.blood_stock.id}`);
-      console.log(`     blood_stock.quantity: ${a.blood_stock.quantity}`);
-      console.log(`     blood_stock.status: ${a.blood_stock.status}`);
+      if (a.blood_stock) {
+        console.log(`     blood_stock_id: ${a.blood_stock.id}`);
+        console.log(`     blood_stock.quantity: ${a.blood_stock.quantity}`);
+        console.log(`     blood_stock.status: ${a.blood_stock.status}`);
+      } else {
+        console.log(`     ⚠️ blood_stock: null (stock may have been deleted or not match criteria)`);
+      }
     });
 
-    // Calculate used stock IDs from allocations
-    const usedStockIds = (allocatedBlood || []).map(a => a.blood_stock.id);
+    // Calculate used stock IDs from allocations (filter out null blood_stock)
+    const usedStockIds = (allocatedBlood || [])
+      .filter(a => a.blood_stock !== null)
+      .map(a => a.blood_stock.id);
 
     console.log(`🔍 Used Stock IDs from allocations:`, usedStockIds);
     console.log(`📊 Total available stock in blood_stock:`, freeStock?.length || 0);
@@ -481,17 +487,19 @@ const getBloodWithFreeStock = async (req, res) => {
           quantity_needed: quantityNeeded,
           status: request.status
         },
-        allocations: allocationsForThisRequest.map(a => ({
-          allocation_id: a.id,
-          quantity_allocated: a.quantity_allocated,
-          quantity_picked_up: a.quantity_picked_up,
-          quantity_pending: a.quantity_allocated - a.quantity_picked_up,
-          batch_number: a.blood_stock.batch_number,
-          expiry_date: a.blood_stock.expiry_date,
-          fulfillment_patient: a.fulfillment_request?.patient_name,
-          source: "allocation",
-          warning: null
-        })),
+        allocations: allocationsForThisRequest
+          .filter(a => a.blood_stock !== null) // Filter out allocations without valid blood_stock
+          .map(a => ({
+            allocation_id: a.id,
+            quantity_allocated: a.quantity_allocated,
+            quantity_picked_up: a.quantity_picked_up,
+            quantity_pending: a.quantity_allocated - a.quantity_picked_up,
+            batch_number: a.blood_stock.batch_number,
+            expiry_date: a.blood_stock.expiry_date,
+            fulfillment_patient: a.fulfillment_request?.patient_name,
+            source: "allocation",
+            warning: null
+          })),
         free_stock: (availableFreeStock || []).map(s => ({
           stock_id: s.id,
           quantity: s.quantity,
