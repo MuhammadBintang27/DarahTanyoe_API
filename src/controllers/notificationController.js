@@ -85,7 +85,7 @@ const markAsRead = async (req, res) => {
     await notificationService.markAsRead(notificationId);
 
     return response.sendSuccess(res, {
-      message: "Notification marked as read",
+      message: "Notifikasi berhasil ditandai sudah dibaca",
     });
   } catch (error) {
     console.error("Mark as read error:", error);
@@ -101,7 +101,7 @@ const markAllAsRead = async (req, res) => {
     await notificationService.markAllAsRead(institutionId);
 
     return response.sendSuccess(res, {
-      message: "All notifications marked as read",
+      message: "Semua notifikasi berhasil ditandai sudah dibaca",
     });
   } catch (error) {
     console.error("Mark all as read error:", error);
@@ -157,7 +157,7 @@ const unregisterPushToken = async (req, res) => {
     await notificationService.unregisterPushToken(token);
 
     return response.sendSuccess(res, {
-      message: "Push token unregistered",
+      message: "Token push berhasil dihapus",
     });
   } catch (error) {
     console.error("Unregister push token error:", error);
@@ -185,7 +185,7 @@ const sendTestNotification = async (req, res) => {
     });
 
     return response.sendSuccess(res, {
-      message: "Test notification sent",
+      message: "Notifikasi uji berhasil dikirim",
       result,
     });
   } catch (error) {

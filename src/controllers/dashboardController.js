@@ -77,7 +77,7 @@ const getHospitalSummary = async (req, res) => {
       }
     })
 
-    return response.sendSuccess(res, { data: result, message: 'Hospital summary' })
+    return response.sendSuccess(res, { data: result, message: 'Ringkasan dashboard rumah sakit' })
   } catch (error) {
     console.error('Hospital summary error:', error)
     return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')
@@ -126,7 +126,7 @@ const getPMISummary = async (req, res) => {
       }
     })
 
-    return response.sendSuccess(res, { data: result, message: 'PMI summary' })
+    return response.sendSuccess(res, { data: result, message: 'Ringkasan dashboard PMI' })
   } catch (error) {
     console.error('PMI summary error:', error)
     return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')
@@ -153,7 +153,7 @@ const getHospitalTrends = async (req, res) => {
       return { requests_per_day: groupByDay(data, 'created_at') }
     })
 
-    return response.sendSuccess(res, { data: result, message: 'Hospital trends' })
+    return response.sendSuccess(res, { data: result, message: 'Tren rumah sakit' })
   } catch (error) {
     console.error('Hospital trends error:', error)
     return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')
@@ -180,7 +180,7 @@ const getPMITrends = async (req, res) => {
       return { requests_per_day: groupByDay(data, 'created_at') }
     })
 
-    return response.sendSuccess(res, { data: result, message: 'PMI trends' })
+    return response.sendSuccess(res, { data: result, message: 'Tren PMI' })
   } catch (error) {
     console.error('PMI trends error:', error)
     return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')
@@ -262,7 +262,7 @@ const getHospitalCharts = async (req, res) => {
       }
     })
 
-    return response.sendSuccess(res, { data: result, message: 'Hospital chart data' })
+    return response.sendSuccess(res, { data: result, message: 'Data grafik rumah sakit' })
   } catch (error) {
     console.error('Hospital chart data error:', error)
     return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')
@@ -344,7 +344,7 @@ const getPMICharts = async (req, res) => {
       }
     })
 
-    return response.sendSuccess(res, { data: result, message: 'PMI chart data' })
+    return response.sendSuccess(res, { data: result, message: 'Data grafik PMI' })
   } catch (error) {
     console.error('PMI chart data error:', error)
     return response.sendInternalError(res, 'Terjadi kesalahan yang tidak terduga')

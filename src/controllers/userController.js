@@ -208,7 +208,7 @@ const getUserPoints = async (req, res) => {
       .single();
 
     if (error || !data) {
-      return response.sendNotFound(res, "User not found");
+      return response.sendNotFound(res, "Pengguna tidak ditemukan");
     }
 
     return response.sendSuccess(res, {
@@ -390,7 +390,7 @@ const getUserProfile = async (req, res) => {
     const { id } = req.params;
 
     if (!id) {
-      return response.sendBadRequest(res, "User ID diperlukan");
+      return response.sendBadRequest(res, "ID pengguna diperlukan");
     }
 
     const { data: user, error } = await supabase
@@ -401,11 +401,11 @@ const getUserProfile = async (req, res) => {
 
     if (error) {
       console.error("Error fetching user:", error);
-      return response.sendInternalError(res, "Failed to fetch user");
+      return response.sendInternalError(res, "Gagal memuat data pengguna");
     }
 
     if (!user) {
-      return response.sendNotFound(res, "User not found");
+      return response.sendNotFound(res, "Pengguna tidak ditemukan");
     }
 
     return response.sendSuccess(res, { user });

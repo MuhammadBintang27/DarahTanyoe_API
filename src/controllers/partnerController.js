@@ -176,13 +176,13 @@ const approveBloodRequest = async (req, res) => {
       .single();
 
     if (requestError || !requestData) {
-      return response.sendNotFound(res, "Blood request not found");
+      return response.sendNotFound(res, "Permintaan darah tidak ditemukan");
     }
 
     if (requestData.status !== "pending") {
       return response.sendBadRequest(
         res,
-        "Only pending requests can be approved"
+        "Hanya permintaan berstatus menunggu yang dapat disetujui"
       );
     }
 
@@ -207,7 +207,7 @@ const approveBloodRequest = async (req, res) => {
       .eq("id", requestId);
 
     if (updateError) {
-      return response.sendInternalError(res, "Failed to approve request");
+      return response.sendInternalError(res, "Gagal menyetujui permintaan");
     }
 
     // Generate unique pickup code
@@ -293,13 +293,13 @@ const rejectBloodRequest = async (req, res) => {
       .single();
 
     if (requestError || !requestData) {
-      return response.sendNotFound(res, "Blood request not found");
+      return response.sendNotFound(res, "Permintaan darah tidak ditemukan");
     }
 
     if (requestData.status !== "pending") {
       return response.sendBadRequest(
         res,
-        "Only pending requests can be rejected"
+        "Hanya permintaan berstatus menunggu yang dapat ditolak"
       );
     }
 
@@ -308,13 +308,13 @@ const rejectBloodRequest = async (req, res) => {
       .from("blood_requests")
       .update({ 
         status: "rejected",
-        rejection_reason: rejection_reason || "No reason provided",
+        rejection_reason: rejection_reason || "Tidak ada alasan",
         updated_at: new Date() 
       })
       .eq("id", requestId);
 
     if (updateError) {
-      return response.sendInternalError(res, "Failed to reject request");
+      return response.sendInternalError(res, "Gagal menolak permintaan");
     }
 
     // 🔔 Send notification to hospital using notificationService
@@ -370,14 +370,14 @@ const confirmRequest = async (req, res) => {
       .single();
 
     if (requestError || !requestData) {
-      return response.sendNotFound(res, "Blood request not found");
+      return response.sendNotFound(res, "Permintaan darah tidak ditemukan");
     }
 
     // Check if the request is in approved status before sending to donors
     if (requestData.status !== "approved") {
       return response.sendBadRequest(
         res,
-        "Only approved requests can be sent to nearby donors"
+        "Hanya permintaan berstatus disetujui yang dapat dikirim ke pendonor terdekat"
       );
     }
 
@@ -397,7 +397,7 @@ const confirmRequest = async (req, res) => {
 
     if (nearbyError) {
       console.error("Error fetching nearby users:", nearbyError);
-      return response.sendInternalError(res, "Failed to fetch nearby users");
+      return response.sendInternalError(res, "Gagal memuat data pengguna terdekat");
     }
 
     // Mengirim Notifikasi WhatsApp ke Setiap User
@@ -493,7 +493,7 @@ const confirmRequest = async (req, res) => {
 
     if (notificationError) {
       console.error("Error saving notifications:", notificationError);
-      return response.sendInternalError(res, "Failed to save notifications");
+      return response.sendInternalError(res, "Gagal menyimpan notifikasi");
     }
 
     // Update request status to confirmed

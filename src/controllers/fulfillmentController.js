@@ -114,7 +114,7 @@ const searchAndCreateCampaign = async (req, res) => {
 
     if (campaignError) {
       console.error("❌ Error creating campaign:", campaignError);
-      return response.sendInternalServerError(res, "Failed to create campaign");
+      return response.sendInternalError(res, "Gagal membuat kampanye");
     }
 
     const campaignId = newCampaign.id;
@@ -154,7 +154,7 @@ const searchAndCreateCampaign = async (req, res) => {
 
   } catch (error) {
     console.error("❌ Error in searchAndCreateCampaign:", error);
-    return response.sendInternalServerError(res, error.message);
+    return response.sendInternalError(res, error.message);
   }
 };
 
@@ -176,7 +176,7 @@ const searchEligibleDonorsForFulfillment = async (req, res) => {
       .single();
 
     if (fulfillmentError || !fulfillmentRequest) {
-      return response.sendBadRequest(res, "Fulfillment request not found");
+      return response.sendBadRequest(res, "Permintaan pemenuhan tidak ditemukan");
     }
 
     // Check if already has pending_notification donors (from previous search)
@@ -239,7 +239,7 @@ const searchEligibleDonorsForFulfillment = async (req, res) => {
       .single();
 
     if (!pmiData?.location) {
-      return response.sendBadRequest(res, "PMI location not set");
+      return response.sendBadRequest(res, "Lokasi PMI belum diatur");
     }
 
     // Get ALL donors that already have confirmations for this fulfillment (to exclude them)
@@ -373,7 +373,7 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
       .single();
 
     if (fulfillmentError || !fulfillmentRequest) {
-      return response.sendBadRequest(res, "Fulfillment request not found");
+      return response.sendBadRequest(res, "Permintaan pemenuhan tidak ditemukan");
     }
 
     // Get PMI location 
@@ -384,7 +384,7 @@ const sendNotificationsToSelectedDonors = async (req, res) => {
       .single();
 
     if (!pmiData?.location) {
-      return response.sendBadRequest(res, "PMI location not set");
+      return response.sendBadRequest(res, "Lokasi PMI belum diatur");
     }
 
     // Get existing donor confirmations to exclude them
@@ -624,7 +624,7 @@ const createFulfillmentRequest = async (req, res) => {
 
   } catch (error) {
     console.error("Error in createFulfillmentRequest:", error);
-    return response.sendInternalServerError(res, error.message);
+    return response.sendInternalError(res, error.message);
   }
 };
 
@@ -744,7 +744,7 @@ const getFulfillmentRequestById = async (req, res) => {
       .single();
 
     if (error) {
-      return response.sendNotFound(res, "Fulfillment request not found");
+      return response.sendNotFound(res, "Permintaan pemenuhan tidak ditemukan");
     }
 
     // Add confirmation statistics
@@ -793,7 +793,7 @@ const updateFulfillmentStatus = async (req, res) => {
       .single();
 
     if (fetchError || !fulfillment) {
-      return response.sendBadRequest(res, "Fulfillment request not found");
+      return response.sendBadRequest(res, "Permintaan pemenuhan tidak ditemukan");
     }
 
     const updateData = { status };
@@ -872,7 +872,7 @@ const getDonorConfirmations = async (req, res) => {
     }
 
     return response.sendSuccess(res, {
-      message: "Donor confirmations retrieved successfully",
+      message: "Daftar konfirmasi pendonor berhasil dimuat",
       data
     });
   } catch (error) {
@@ -893,7 +893,7 @@ const getDonorConfirmationsByDonorId = async (req, res) => {
 
   try {
     if (!donor_id) {
-      return response.sendBadRequest(res, "donor_id is required");
+      return response.sendBadRequest(res, "donor_id wajib diisi");
     }
 
     console.log(`📋 getDonorConfirmationsByDonorId: donor_id=${donor_id}, status=${status}`);
@@ -942,7 +942,7 @@ const getDonorConfirmationsByDonorId = async (req, res) => {
     console.log(`✅ Retrieved ${data?.length || 0} confirmations`);
 
     return response.sendSuccess(res, {
-      message: "Donor confirmations retrieved successfully",
+      message: "Daftar konfirmasi pendonor berhasil dimuat",
       data: data || []
     });
   } catch (error) {
@@ -979,7 +979,7 @@ const verifyDonorCode = async (req, res) => {
       .single();
 
     if (findError || !confirmation) {
-      return response.sendNotFound(res, "Invalid code - Code not found");
+      return response.sendNotFound(res, "Kode tidak valid - kode tidak ditemukan");
     }
 
     // Check if code is already verified
@@ -1183,7 +1183,7 @@ const completeDonation = async (req, res) => {
       .single();
 
     if (confirmError || !confirmation) {
-      return response.sendNotFound(res, "Confirmation not found");
+      return response.sendNotFound(res, "Konfirmasi tidak ditemukan");
     }
 
     // Check if code is verified (must be in 'code_verified' status)
@@ -1193,7 +1193,7 @@ const completeDonation = async (req, res) => {
 
     // Check if already completed
     if (confirmation.status === "completed") {
-      return response.sendBadRequest(res, "Donation already completed");
+      return response.sendBadRequest(res, "Donasi sudah diselesaikan");
     }
 
     // Create donation record (will be processed into components later)
@@ -1387,11 +1387,11 @@ const initiateFulfillment = async (req, res) => {
       .single();
 
     if (fulfillmentError || !fulfillment) {
-      return response.sendNotFound(res, "Fulfillment request not found");
+      return response.sendNotFound(res, "Permintaan pemenuhan tidak ditemukan");
     }
 
     if (!fulfillment.pmi.location) {
-      return response.sendBadRequest(res, "PMI location not set");
+      return response.sendBadRequest(res, "Lokasi PMI belum diatur");
     }
 
     // Find eligible donors
@@ -1493,12 +1493,12 @@ const donorConfirm = async (req, res) => {
   try {
     // Must have donor_id
     if (!donor_id) {
-      return response.sendBadRequest(res, "donor_id is required");
+      return response.sendBadRequest(res, "donor_id wajib diisi");
     }
 
     // Must have either confirmation_id OR campaign_id
     if (!confirmation_id && !campaign_id) {
-      return response.sendBadRequest(res, "Either confirmation_id or campaign_id is required");
+      return response.sendBadRequest(res, "confirmation_id atau campaign_id wajib diisi");
     }
 
     let confirmation;
@@ -1521,12 +1521,12 @@ const donorConfirm = async (req, res) => {
         .single();
 
       if (findError || !foundConfirmation) {
-        return response.sendNotFound(res, "Confirmation not found");
+        return response.sendNotFound(res, "Konfirmasi tidak ditemukan");
       }
 
       // Verify donor owns this confirmation
       if (foundConfirmation.donor_id !== donor_id) {
-        return response.sendBadRequest(res, "Unauthorized - You are not the donor for this confirmation");
+        return response.sendBadRequest(res, "Tidak diizinkan - Anda bukan pendonor untuk konfirmasi ini");
       }
 
       // Check if already confirmed
@@ -1600,7 +1600,7 @@ const donorConfirm = async (req, res) => {
         // If already confirmed, just return the existing code
         if (confirmation.status === 'confirmed') {
           return response.sendSuccess(res, {
-            message: "You have already confirmed. Your unique code is ready.",
+            message: "Anda sudah melakukan konfirmasi. Kode unik Anda sudah siap.",
             data: {
               confirmationId: confirmation.id,
               donorName: confirmation.donor.full_name,
@@ -1616,7 +1616,7 @@ const donorConfirm = async (req, res) => {
         // ❌ NO CREATE - Confirmation MUST exist from pre-check
         console.log("❌ [DEBUG] No confirmation found. Must call pre-check endpoint first.");
         return response.sendBadRequest(res, 
-          "Confirmation not found. Please refresh the page or call pre-check endpoint first.");
+          "Konfirmasi tidak ditemukan. Silakan muat ulang halaman atau panggil endpoint pre-check terlebih dahulu.");
       }
     }
 
@@ -1748,12 +1748,12 @@ const donorReject = async (req, res) => {
       .single();
 
     if (findError || !confirmation) {
-      return response.sendNotFound(res, "Confirmation not found");
+      return response.sendNotFound(res, "Konfirmasi tidak ditemukan");
     }
 
     // Verify donor owns this confirmation
     if (confirmation.donor_id !== donor_id) {
-      return response.sendBadRequest(res, "Unauthorized - You are not the donor for this confirmation");
+      return response.sendBadRequest(res, "Tidak diizinkan - Anda bukan pendonor untuk konfirmasi ini");
     }
 
     // Check if already processed
@@ -1824,12 +1824,12 @@ const donorCancel = async (req, res) => {
       .single();
 
     if (findError || !confirmation) {
-      return response.sendNotFound(res, "Confirmation not found");
+      return response.sendNotFound(res, "Konfirmasi tidak ditemukan");
     }
 
     // Verify donor owns this confirmation
     if (confirmation.donor_id !== donor_id) {
-      return response.sendBadRequest(res, "Unauthorized - You are not the donor for this confirmation");
+      return response.sendBadRequest(res, "Tidak diizinkan - Anda bukan pendonor untuk konfirmasi ini");
     }
 
     // Only allow cancel from certain statuses
@@ -1921,7 +1921,7 @@ const preCheckConfirmation = async (req, res) => {
     if (existingConfirmation && !existingConfirmation.error) {
       console.log("✅ [DEBUG] Confirmation already exists:", existingConfirmation.id);
       return response.sendSuccess(res, {
-        message: "Confirmation already exists",
+        message: "Konfirmasi sudah tersedia",
         data: {
           confirmationId: existingConfirmation.id,
           isNew: false

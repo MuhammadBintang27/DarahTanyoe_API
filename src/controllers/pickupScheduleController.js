@@ -55,17 +55,17 @@ export const getPickupSchedules = async (req, res) => {
 
     if (error) {
       console.error('Error fetching pickup schedules:', error);
-      return response.sendServerError(res, 'Error fetching pickup schedules');
+      return response.sendServerError(res, 'Gagal memuat jadwal penjemputan');
     }
 
     return response.sendSuccess(res, {
-      message: 'Pickup schedules retrieved successfully',
+      message: 'Daftar jadwal penjemputan berhasil dimuat',
       data: schedules
     });
 
   } catch (error) {
     console.error('Error in getPickupSchedules:', error);
-    return response.sendServerError(res, 'Internal server error');
+    return response.sendServerError(res, 'Terjadi kesalahan yang tidak terduga');
   }
 };
 
@@ -87,17 +87,17 @@ export const confirmPickup = async (req, res) => {
     } = req.body;
 
     if (!uniqueCode || !pmiId) {
-      return response.sendBadRequest(res, 'Unique code and PMI ID are required');
+      return response.sendBadRequest(res, 'Kode unik dan ID PMI wajib diisi');
     }
 
     // Validate sample verification is required
     if (sample_verified !== true) {
-      return response.sendBadRequest(res, 'Verifikasi sample darah pasien wajib dilakukan sebelum pickup dikonfirmasi');
+      return response.sendBadRequest(res, 'Verifikasi sampel darah pasien wajib dilakukan sebelum penjemputan dikonfirmasi');
     }
 
     // Validate test result is provided
     if (!sample_test_result || !['compatible', 'incompatible'].includes(sample_test_result)) {
-      return response.sendBadRequest(res, 'Hasil uji sample (compatible/incompatible) harus diisi');
+      return response.sendBadRequest(res, 'Hasil uji sampel (compatible/incompatible) wajib diisi');
     }
 
     // Get pickup schedule
@@ -108,22 +108,22 @@ export const confirmPickup = async (req, res) => {
       .single();
 
     if (scheduleError || !schedule) {
-      return response.sendNotFound(res, 'Pickup schedule not found');
+      return response.sendNotFound(res, 'Jadwal penjemputan tidak ditemukan');
     }
 
     // Verify PMI is the owner
     if (schedule.pmi_id !== pmiId) {
-      return response.sendForbidden(res, 'You are not authorized to confirm this pickup');
+      return response.sendForbidden(res, 'Anda tidak berwenang untuk mengonfirmasi penjemputan ini');
     }
 
     // Verify status
     if (schedule.status === 'completed') {
-      return response.sendBadRequest(res, 'This pickup has already been completed');
+      return response.sendBadRequest(res, 'Penjemputan ini sudah selesai');
     }
 
     // Verify unique code
     if (schedule.unique_code !== uniqueCode.toUpperCase().trim()) {
-      return response.sendBadRequest(res, 'Invalid unique code');
+      return response.sendBadRequest(res, 'Kode unik tidak valid');
     }
 
     // ============================================
@@ -299,7 +299,7 @@ export const confirmPickup = async (req, res) => {
 
       if (cancelError) {
         console.error('Error cancelling pickup:', cancelError);
-        return response.sendServerError(res, 'Error cancelling pickup');
+        return response.sendServerError(res, 'Gagal membatalkan penjemputan');
       }
 
       // Update blood request to rejected
@@ -316,7 +316,7 @@ export const confirmPickup = async (req, res) => {
 
       if (rejectError) {
         console.error('Error rejecting request:', rejectError);
-        return response.sendServerError(res, 'Error rejecting request');
+        return response.sendServerError(res, 'Gagal menolak permintaan');
       }
 
       // Invalidate cache
@@ -324,7 +324,7 @@ export const confirmPickup = async (req, res) => {
       await invalidateForPartnerStock(pmiId);
 
       return response.sendSuccess(res, {
-        message: 'Pickup dibatalkan karena sample darah tidak compatible. Stok darah dikembalikan. Permintaan ditolak.',
+        message: 'Penjemputan dibatalkan karena sampel darah tidak kompatibel. Stok darah dikembalikan. Permintaan ditolak.',
         data: {
           pickup_status: 'cancelled',
           request_status: 'rejected',
@@ -359,7 +359,7 @@ export const confirmPickup = async (req, res) => {
 
     if (updateError) {
       console.error('Error updating pickup schedule:', updateError);
-      return response.sendServerError(res, 'Error confirming pickup');
+      return response.sendServerError(res, 'Gagal mengonfirmasi penjemputan');
     }
 
     // ✅ Get blood stocks yang digunakan untuk record history (jika dari free_stock)
@@ -424,7 +424,7 @@ export const confirmPickup = async (req, res) => {
 
     if (requestError) {
       console.error('Error updating request status:', requestError);
-      return response.sendServerError(res, 'Error updating request status');
+      return response.sendServerError(res, 'Gagal memperbarui status permintaan');
     }
 
     // Hard delete allocations - no longer needed after pickup completed
@@ -477,19 +477,19 @@ export const confirmPickup = async (req, res) => {
 
     if (fetchError) {
       return response.sendSuccess(res, {
-        message: 'Pickup berhasil dikonfirmasi',
+        message: 'Penjemputan berhasil dikonfirmasi',
         data: null
       });
     }
 
     return response.sendSuccess(res, {
-      message: 'Pickup berhasil dikonfirmasi. Permintaan ditandai selesai.',
+      message: 'Penjemputan berhasil dikonfirmasi. Permintaan ditandai selesai.',
       data: updatedSchedule
     });
 
   } catch (error) {
     console.error('Error in confirmPickup:', error);
-    return response.sendServerError(res, 'Internal server error');
+    return response.sendServerError(res, 'Terjadi kesalahan yang tidak terduga');
   }
 };
 
