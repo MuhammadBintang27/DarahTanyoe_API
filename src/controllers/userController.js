@@ -53,7 +53,7 @@ const signInWithPhone = async (req, res) => {
     }
 
     // Send OTP via WhatsApp (uncomment when ready)
-    // await sendWhatsAppOTP(phone, otp);
+    await sendWhatsAppOTP(phone, otp);
 
     console.log("OTP sent to phone:", otp);
 
